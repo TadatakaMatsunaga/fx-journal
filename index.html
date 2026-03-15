@@ -215,10 +215,22 @@
 
     // ── Root with Auth ────────────────────────────────────────────────────
     function Root() {
-      const [session, setSession] = useState(() => loadSession());
+      const [session, setSession] = useState(null);
+      const [ready, setReady] = useState(false);
+
+      // 初期化: sessionをlocalStorageから復元してstorageをセット
+      useEffect(() => {
+        const s = loadSession();
+        if (s) {
+          window.storage = makeStorage(s.user.id, s.access_token);
+          setSession(s);
+        }
+        setReady(true);
+      }, []);
 
       const handleLogin = (s) => {
         window.storage = makeStorage(s.user.id, s.access_token);
+        saveSession(s);
         setSession(s);
       };
 
@@ -229,14 +241,15 @@
         setSession(null);
       };
 
-      useEffect(() => {
-        if (session) {
-          window.storage = makeStorage(session.user.id, session.access_token);
-        }
-      }, []);
+      if (!ready) return (
+        <div style={{ minHeight: "100vh", background: "#0d0d1a",
+          display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ color: "#00e5a0", fontSize: 16 }}>読み込み中...</div>
+        </div>
+      );
 
       if (!session) return <LoginScreen onLogin={handleLogin} />;
-      return <App onLogout={handleLogout} userEmail={session.user.email} />;
+      return <App key={session.user.id} onLogout={handleLogout} userEmail={session.user.email} />;
     }
 
 
