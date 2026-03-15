@@ -3,54 +3,44 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="FX Journal" />
   <title>FX Journal</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0d0d1a; color: #e8e0d5; }
+    body { background: #0d0d1a; color: #e8e0d5; font-family: 'DM Mono', monospace; }
     #root { min-height: 100vh; }
   </style>
 </head>
 <body>
   <div id="root"></div>
 
-  <!-- 依存ライブラリ（順番が重要）-->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.9.0/Recharts.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.1.16/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <script type="text/babel" data-presets="react">
     const { useState, useCallback, useMemo, useEffect, useContext, createContext } = React;
     const { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
              Tooltip, ResponsiveContainer, Cell, LineChart, Line } = Recharts;
 
-    // ── Supabase Storage Adapter ──────────────────────────────────────────
     const SUPABASE_URL = "https://cdjbqgaqcauicucelksd.supabase.co";
     const SUPABASE_KEY = "sb_publishable_euHAVPCwbRRvjwgmJKjFWQ_eMjU0VwZ";
 
-    function getUserId() {
-      let uid = localStorage.getItem("fxjournal_uid");
-      if (!uid) {
-        uid = "user_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-        localStorage.setItem("fxjournal_uid", uid);
-      }
-      return uid;
-    }
-
-    async function supabaseRequest(method, path, body) {
+    // ── Supabase Auth & API ───────────────────────────────────────────────
+    async function supabaseRequest(method, path, body, accessToken) {
       const url = SUPABASE_URL + path;
       const headers = {
         "Content-Type": "application/json",
         "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY,
+        "Authorization": "Bearer " + (accessToken || SUPABASE_KEY),
       };
-      if (method === "POST") headers["Prefer"] = "resolution=merge-duplicates";
+      if (method === "POST" && path.startsWith("/rest/")) headers["Prefer"] = "resolution=merge-duplicates";
       const res = await fetch(url, {
         method,
         headers,
@@ -61,38 +51,193 @@
       return text ? JSON.parse(text) : null;
     }
 
-    window.storage = {
-      async get(key) {
-        const uid = getUserId();
-        const table = key.includes("settings") ? "settings" : "trades";
-        const data = await supabaseRequest("GET",
-          `/rest/v1/${table}?user_id=eq.${encodeURIComponent(uid)}&select=data`);
-        if (!data || !data.length) throw new Error("not found");
-        const value = typeof data[0].data === "string" ? data[0].data : JSON.stringify(data[0].data);
-        return { key, value };
-      },
-      async set(key, value) {
-        const uid = getUserId();
-        const table = key.includes("settings") ? "settings" : "trades";
-        const parsed = (() => { try { return JSON.parse(value); } catch { return value; } })();
-        await supabaseRequest("POST", `/rest/v1/${table}`, {
-          user_id: uid,
-          data: parsed,
-          updated_at: new Date().toISOString(),
-        });
-        return { key, value };
-      },
-      async delete(key) {
-        const uid = getUserId();
-        const table = key.includes("settings") ? "settings" : "trades";
-        await supabaseRequest("DELETE",
-          `/rest/v1/${table}?user_id=eq.${encodeURIComponent(uid)}`, undefined);
-        return { key, deleted: true };
-      },
-      async list() {
-        return { keys: ["fxjournal_trades_v1", "fxjournal_settings_v1"] };
-      },
-    };
+    // Auth helpers
+    async function signIn(email, password) {
+      const res = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error_description || data.msg || "ログインに失敗しました");
+      return data;
+    }
+
+    async function signUp(email, password) {
+      const res = await fetch(SUPABASE_URL + "/auth/v1/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error_description || data.msg || "登録に失敗しました");
+      return data;
+    }
+
+    async function signOut(accessToken) {
+      await fetch(SUPABASE_URL + "/auth/v1/logout", {
+        method: "POST",
+        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + accessToken },
+      });
+    }
+
+    // Persist session in localStorage
+    function saveSession(session) {
+      localStorage.setItem("fxjournal_session", JSON.stringify(session));
+    }
+    function loadSession() {
+      try { return JSON.parse(localStorage.getItem("fxjournal_session")); } catch { return null; }
+    }
+    function clearSession() {
+      localStorage.removeItem("fxjournal_session");
+    }
+
+    // ── Storage adapter (uses auth user_id) ───────────────────────────────
+    function makeStorage(userId, accessToken) {
+      return {
+        async get(key) {
+          const table = key.includes("settings") ? "settings" : "trades";
+          const data = await supabaseRequest("GET",
+            `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}&select=data`,
+            undefined, accessToken);
+          if (!data || !data.length) throw new Error("not found");
+          const value = typeof data[0].data === "string" ? data[0].data : JSON.stringify(data[0].data);
+          return { key, value };
+        },
+        async set(key, value) {
+          const table = key.includes("settings") ? "settings" : "trades";
+          const parsed = (() => { try { return JSON.parse(value); } catch { return value; } })();
+          await supabaseRequest("POST", `/rest/v1/${table}`,
+            { user_id: userId, data: parsed, updated_at: new Date().toISOString() },
+            accessToken);
+          return { key, value };
+        },
+        async delete(key) {
+          const table = key.includes("settings") ? "settings" : "trades";
+          await supabaseRequest("DELETE",
+            `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}`,
+            undefined, accessToken);
+          return { key, deleted: true };
+        },
+        async list() {
+          return { keys: ["fxjournal_trades_v1", "fxjournal_settings_v1"] };
+        },
+      };
+    }
+
+    // ── Login Screen ──────────────────────────────────────────────────────
+    function LoginScreen({ onLogin }) {
+      const [email, setEmail] = useState("");
+      const [password, setPassword] = useState("");
+      const [error, setError] = useState("");
+      const [loading, setLoading] = useState(false);
+      const [mode, setMode] = useState("login"); // "login" | "signup"
+
+      const handle = async () => {
+        setError(""); setLoading(true);
+        try {
+          let session;
+          if (mode === "login") {
+            session = await signIn(email, password);
+          } else {
+            const res = await signUp(email, password);
+            if (res.access_token) {
+              session = res;
+            } else {
+              setError("確認メールを送信しました。メールを確認してからログインしてください。");
+              setLoading(false);
+              setMode("login");
+              return;
+            }
+          }
+          saveSession(session);
+          onLogin(session);
+        } catch(e) {
+          setError(e.message);
+        }
+        setLoading(false);
+      };
+
+      return (
+        <div style={{
+          minHeight: "100vh", background: "#0d0d1a",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+        }}>
+          <div style={{ width: "100%", maxWidth: 360 }}>
+            <div style={{ fontSize: 28, fontWeight: 700, color: "#00e5a0",
+              fontFamily: "'Space Grotesk', sans-serif", marginBottom: 8, textAlign: "center" }}>
+              FX JOURNAL
+            </div>
+            <div style={{ fontSize: 13, color: "#555", textAlign: "center", marginBottom: 32 }}>
+              {mode === "login" ? "ログイン" : "新規登録"}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <input type="email" placeholder="メールアドレス" value={email}
+                onChange={e => setEmail(e.target.value)}
+                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)",
+                  color: "#e8e0d5", borderRadius: 8, padding: "12px 14px", fontSize: 15, width: "100%" }} />
+              <input type="password" placeholder="パスワード" value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handle()}
+                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)",
+                  color: "#e8e0d5", borderRadius: 8, padding: "12px 14px", fontSize: 15, width: "100%" }} />
+
+              {error && <div style={{ color: "#ff4d6d", fontSize: 13, padding: "8px 12px",
+                background: "rgba(255,77,109,0.08)", borderRadius: 6 }}>{error}</div>}
+
+              <button onClick={handle} disabled={loading} style={{
+                background: "rgba(0,229,160,0.15)", border: "1px solid rgba(0,229,160,0.4)",
+                color: "#00e5a0", borderRadius: 8, padding: "12px", fontSize: 15, fontWeight: 700,
+                cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1,
+              }}>
+                {loading ? "処理中..." : mode === "login" ? "ログイン" : "登録する"}
+              </button>
+
+              <div style={{ textAlign: "center", fontSize: 13, color: "#555" }}>
+                {mode === "login" ? (
+                  <span>アカウントがない場合は{" "}
+                    <span onClick={() => setMode("signup")}
+                      style={{ color: "#00e5a0", cursor: "pointer" }}>新規登録</span>
+                  </span>
+                ) : (
+                  <span>すでにアカウントをお持ちの場合は{" "}
+                    <span onClick={() => setMode("login")}
+                      style={{ color: "#00e5a0", cursor: "pointer" }}>ログイン</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Root with Auth ────────────────────────────────────────────────────
+    function Root() {
+      const [session, setSession] = useState(() => loadSession());
+
+      const handleLogin = (s) => {
+        window.storage = makeStorage(s.user.id, s.access_token);
+        setSession(s);
+      };
+
+      const handleLogout = async () => {
+        if (session) await signOut(session.access_token).catch(() => {});
+        clearSession();
+        window.storage = null;
+        setSession(null);
+      };
+
+      useEffect(() => {
+        if (session) {
+          window.storage = makeStorage(session.user.id, session.access_token);
+        }
+      }, []);
+
+      if (!session) return <LoginScreen onLogin={handleLogin} />;
+      return <App onLogout={handleLogout} userEmail={session.user.email} />;
+    }
 
 
 // ── Sample Data Generator ──────────────────────────────────────────────────
@@ -1231,8 +1376,65 @@ function mergeAndDedupe(existing, incoming) {
   return { merged, added, total: merged.length, dupes: incoming.length - added };
 }
 
+// ── Export Panel ───────────────────────────────────────────────────────────
+function ExportPanel({ trades, T }) {
+  const [showCsv, setShowCsv] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const csv = useMemo(() => {
+    if (!trades.length) return "";
+    const header = "date,time,pair,direction,lots,entryPrice,exitPrice,pnl,pips";
+    const rows = trades.map(t =>
+      [t.date, t.time, t.pair, t.direction, t.lots, t.entryPrice, t.exitPrice, t.pnl, t.pips].join(",")
+    );
+    return [header, ...rows].join("\n");
+  }, [trades]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(csv).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  if (!trades.length) return <div style={{ color: T.textFaint, fontSize: 13 }}>データがありません</div>;
+
+  return (
+    <div>
+      <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>データエクスポート</div>
+      <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 12 }}>
+        CSVをコピーして、テキストエディタで .csv ファイルとして保存してください。スタンドアロン版のCSV読込でそのまま取り込めます。
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: showCsv ? 10 : 0 }}>
+        <button onClick={() => setShowCsv(v => !v)} style={{
+          background: T.surface, border: `1px solid ${T.border}`,
+          color: T.textSub, borderRadius: 8, padding: "8px 16px",
+          cursor: "pointer", fontSize: 13,
+        }}>{showCsv ? "▲ 閉じる" : "▼ CSVを表示"} ({trades.length}件)</button>
+        {showCsv && (
+          <button onClick={handleCopy} style={{
+            background: copied ? "rgba(0,229,160,0.15)" : "rgba(100,160,255,0.1)",
+            border: copied ? "1px solid rgba(0,229,160,0.4)" : "1px solid rgba(100,160,255,0.3)",
+            color: copied ? T.positive : "#6fa0ff",
+            borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600,
+          }}>{copied ? "✓ コピー済み" : "📋 全てコピー"}</button>
+        )}
+      </div>
+      {showCsv && (
+        <textarea readOnly value={csv}
+          style={{ width: "100%", height: 160, background: T.inputBg,
+            border: `1px solid ${T.border}`, color: T.text,
+            borderRadius: 8, padding: 10, fontSize: 11, fontFamily: "monospace",
+            resize: "vertical" }}
+        />
+      )}
+    </div>
+  );
+}
+
+
 // ── Main App ───────────────────────────────────────────────────────────────
-function App() {
+function App({ onLogout, userEmail }) {
   const [trades, setTrades] = useState([]);
   const [activeTab, setActiveTab] = useState("calendar");
   const [settings, setSettings] = useState({});
@@ -1252,6 +1454,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [importMsg, setImportMsg] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [exportCsv, setExportCsv] = useState(null);
 
   // Load from persistent storage on mount
   const loadTrades = useCallback(async () => {
@@ -1316,6 +1519,17 @@ function App() {
     reader.onload = (e) => tryParse(e.target.result);
     reader.readAsText(file, "Shift-JIS");
   }, [saveTrades]);
+
+  const handleExport = useCallback(() => {
+    if (!trades.length) return;
+    const header = "date,time,pair,direction,lots,entryPrice,exitPrice,pnl,pips";
+    const rows = trades.map(t =>
+      [t.date, t.time, t.pair, t.direction, t.lots, t.entryPrice, t.exitPrice, t.pnl, t.pips].join(",")
+    );
+    const csv = [header, ...rows].join("\n");
+    // テキストエリアにコピーして表示
+    setExportCsv(csv);
+  }, [trades]);
 
   const handleClearData = useCallback(() => {
     setShowConfirm(true);
@@ -1496,6 +1710,7 @@ function App() {
             color: "#ff4d6d", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15,
             whiteSpace: "nowrap", flexShrink: 0,
           }}>データ削除</button>
+
           <label style={{
             background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
             color: "#00e5a0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700,
@@ -1505,6 +1720,15 @@ function App() {
             <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
           </label>
         </div>
+        {onLogout && (
+          <div style={{ borderLeft: "1px solid rgba(255,255,255,0.08)", paddingLeft: 12, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 12, color: "#555", display: "none" }}>{userEmail}</span>
+            <button onClick={onLogout} style={{
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+              color: "#666", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 13,
+            }}>ログアウト</button>
+          </div>
+        )}
       </div>
 
       {/* Import Result Toast */}
@@ -1544,6 +1768,48 @@ function App() {
                 background: "rgba(255,77,109,0.15)", border: "1px solid rgba(255,77,109,0.4)",
                 color: "#ff4d6d", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 15, fontWeight: 700,
               }}>削除する</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Modal */}
+      {exportCsv && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 400,
+          background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16,
+        }}>
+          <div style={{
+            background: T.sectionBg || "#13131f", border: `1px solid ${T.border}`,
+            borderRadius: 14, padding: 24, width: "100%", maxWidth: 560,
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 8 }}>CSVエクスポート</div>
+            <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 12 }}>
+              以下のテキストをすべて選択してコピーし、テキストエディタに貼り付けて .csv として保存してください。
+            </div>
+            <textarea
+              readOnly
+              value={exportCsv}
+              onClick={e => e.target.select()}
+              style={{
+                width: "100%", height: 200, background: T.inputBg,
+                border: `1px solid ${T.border}`, borderRadius: 8,
+                color: T.text, fontSize: 12, padding: 10,
+                fontFamily: "monospace", resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
+              <button onClick={() => {
+                navigator.clipboard?.writeText(exportCsv).catch(() => {});
+              }} style={{
+                background: "rgba(100,160,255,0.15)", border: "1px solid rgba(100,160,255,0.3)",
+                color: "#6fa0ff", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 14, fontWeight: 600,
+              }}>クリップボードにコピー</button>
+              <button onClick={() => setExportCsv(null)} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                color: T.textSub, borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 14,
+              }}>閉じる</button>
             </div>
           </div>
         </div>
@@ -1728,6 +1994,9 @@ function App() {
                 </div>
               </div>
 
+              {/* データエクスポート */}
+              <ExportPanel trades={trades} T={T} />
+
               {/* カレンダー表示単位 */}
               <div>
                 <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>カレンダーの損益表示単位</div>
@@ -1757,7 +2026,7 @@ function App() {
 
     const domRoot = document.getElementById("root");
     const reactRoot = ReactDOM.createRoot(domRoot);
-    reactRoot.render(React.createElement(App));
+    reactRoot.render(React.createElement(Root));
   </script>
 </body>
 </html>
