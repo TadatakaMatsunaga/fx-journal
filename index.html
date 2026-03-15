@@ -7,40 +7,33 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="FX Journal" />
   <title>FX Journal</title>
-  <link rel="manifest" href="manifest.json" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0d0d1a; color: #e8e0d5; font-family: 'DM Mono', monospace; }
+    body { background: #0d0d1a; color: #e8e0d5; }
     #root { min-height: 100vh; }
   </style>
 </head>
 <body>
   <div id="root"></div>
 
-  <!-- React -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- Recharts -->
   <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-  <!-- Babel (JSX transform) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet" />
 
   <script type="text/babel" data-presets="react">
+    // React hooks
     const { useState, useCallback, useMemo, useEffect, useContext, createContext } = React;
-    const React_createContext = createContext;
 
-    // Recharts destructure
+    // Recharts
     const { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
              Tooltip, ResponsiveContainer, Cell, LineChart, Line } = Recharts;
 
     // ── Supabase Storage Adapter ──────────────────────────────────────────
-    // Maps window.storage API (used in app) to Supabase
     const SUPABASE_URL = "https://cdjbqgaqcauicucelksd.supabase.co";
     const SUPABASE_KEY = "sb_publishable_euHAVPCwbRRvjwgmJKjFWQ_eMjU0VwZ";
 
-    // Simple user ID based on device (stored in localStorage)
     function getUserId() {
       let uid = localStorage.getItem("fxjournal_uid");
       if (!uid) {
@@ -51,30 +44,32 @@
     }
 
     async function supabaseRequest(method, path, body) {
-      const res = await fetch(SUPABASE_URL + path, {
+      const url = SUPABASE_URL + path;
+      const headers = {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY,
+      };
+      if (method === "POST") headers["Prefer"] = "resolution=merge-duplicates";
+      const res = await fetch(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": SUPABASE_KEY,
-          "Authorization": "Bearer " + SUPABASE_KEY,
-          "Prefer": method === "POST" ? "resolution=merge-duplicates" : "",
-        },
-        body: body ? JSON.stringify(body) : undefined,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
       });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
+      const text = await res.text();
+      if (!res.ok) throw new Error(text);
+      return text ? JSON.parse(text) : null;
     }
 
-    // window.storage compatible API
     window.storage = {
       async get(key) {
         const uid = getUserId();
         const table = key.includes("settings") ? "settings" : "trades";
-        const col = key.includes("settings") ? "user_id" : "user_id";
         const data = await supabaseRequest("GET",
-          `/rest/v1/${table}?user_id=eq.${uid}&select=data`);
+          `/rest/v1/${table}?user_id=eq.${encodeURIComponent(uid)}&select=data`);
         if (!data || !data.length) throw new Error("not found");
-        return { key, value: typeof data[0].data === "string" ? data[0].data : JSON.stringify(data[0].data) };
+        const value = typeof data[0].data === "string" ? data[0].data : JSON.stringify(data[0].data);
+        return { key, value };
       },
       async set(key, value) {
         const uid = getUserId();
@@ -90,16 +85,14 @@
       async delete(key) {
         const uid = getUserId();
         const table = key.includes("settings") ? "settings" : "trades";
-        await supabaseRequest("DELETE", `/rest/v1/${table}?user_id=eq.${uid}`, undefined);
+        await supabaseRequest("DELETE",
+          `/rest/v1/${table}?user_id=eq.${encodeURIComponent(uid)}`, undefined);
         return { key, deleted: true };
       },
       async list() {
         return { keys: ["fxjournal_trades_v1", "fxjournal_settings_v1"] };
       },
     };
-
-    // React.createContext alias
-    const React = window.React;
 
 
 // ── Sample Data Generator ──────────────────────────────────────────────────
@@ -250,8 +243,8 @@ function parseCSV(text) {
 }
 
 // ── Theme Context ─────────────────────────────────────────────────────────
-const ThemeContext = React.createContext({});
-const useTheme = () => React.useContext(ThemeContext);
+const ThemeContext = createContext({});
+const useTheme = () => useContext(ThemeContext);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = (n) => {
@@ -1762,9 +1755,10 @@ function App() {
 }
 
 
-    // Mount
-    const root = ReactDOM.createRoot(document.getElementById("root"));
-    root.render(React.createElement(App));
+    // Mount App
+    const domRoot = document.getElementById("root");
+    const reactRoot = ReactDOM.createRoot(domRoot);
+    reactRoot.render(React.createElement(App));
   </script>
 </body>
 </html>
