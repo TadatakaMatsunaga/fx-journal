@@ -107,9 +107,21 @@
         async set(key, value) {
           const table = key.includes("settings") ? "settings" : "trades";
           const parsed = (() => { try { return JSON.parse(value); } catch { return value; } })();
-          await supabaseRequest("POST", `/rest/v1/${table}`,
-            { user_id: userId, data: parsed, updated_at: new Date().toISOString() },
-            accessToken);
+          const row = { user_id: userId, data: parsed, updated_at: new Date().toISOString() };
+          // 既存行があればUPDATE、なければINSERT（upsert）
+          const url = SUPABASE_URL + `/rest/v1/${table}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": SUPABASE_KEY,
+              "Authorization": "Bearer " + accessToken,
+              "Prefer": "resolution=merge-duplicates",
+              "on-conflict": "user_id",
+            },
+            body: JSON.stringify(row),
+          });
+          if (!res.ok) throw new Error(await res.text());
           return { key, value };
         },
         async delete(key) {
