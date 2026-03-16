@@ -1173,7 +1173,7 @@ function HourlyAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 
 }
 
 // ── Pair Analysis ──────────────────────────────────────────────────────────
-function PairAnalysis({ trades, monthKey }) {
+function PairAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }) {
   const T = useTheme();
   const data = useMemo(() => {
     const filtered = monthKey ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey)) : trades;
@@ -1183,39 +1183,34 @@ function PairAnalysis({ trades, monthKey }) {
       if (!map[p]) map[p] = { pair: p, pnl: 0, count: 0, wins: 0, losses: 0, draws: 0 };
       map[p].pnl += t.pnl;
       map[p].count += 1;
-      const r = tradeResult(t);
+      const r = tradeResult(t, winThreshold, lossThreshold);
       if (r === "win") map[p].wins += 1;
       else if (r === "loss") map[p].losses += 1;
       else map[p].draws += 1;
     });
     return Object.values(map).sort((a, b) => b.pnl - a.pnl);
-  }, [trades, monthKey]);
+  }, [trades, monthKey, winThreshold, lossThreshold]);
 
   return (
-    <div>
-      {data.map(d => (
-        <div key={d.pair} style={{
-          display: "flex", alignItems: "center", gap: 12,
-          padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.05)"
-        }}>
-          <div style={{ width: 80, fontSize: 15, fontWeight: 700, color: T.text }}>{d.pair}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 3, overflow: "hidden" }}>
-              <div style={{
-                height: "100%",
-                width: `${Math.min(Math.abs(d.pnl) / Math.max(...data.map(x => Math.abs(x.pnl))) * 100, 100)}%`,
-                background: pnlColor(d.pnl, T),
-                borderRadius: 3,
-              }} />
-            </div>
-          </div>
-          <div style={{ width: 90, textAlign: "right", fontSize: 15, fontWeight: 700, color: pnlColor(d.pnl, T) }}>{fmt(d.pnl)}</div>
-          <div style={{ width: 50, textAlign: "right", fontSize: 15, color: "#666" }}>{d.count}回</div>
-          <div style={{ width: 45, textAlign: "right", fontSize: 15, color: "#aaa" }}>
-            {d.wins + d.losses > 0 ? Math.round(d.wins / (d.wins + d.losses) * 100) : 0}%
-          </div>
-        </div>
+    <div style={{ display: "grid", gridTemplateColumns: "36px 1fr 96px 1fr" }}>
+      {/* Header */}
+      {["ペア", "損益(円)", "取引数", "勝率 (勝/負/分)"].map((h, i) => (
+        <div key={h} style={{ fontSize: 12, color: T.textMuted, padding: "6px 8px 8px",
+          textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
       ))}
+      {/* Rows */}
+      {data.map(d => {
+        const decided = d.wins + d.losses;
+        const wr = decided > 0 ? (d.wins / decided * 100).toFixed(1) : "—";
+        return [
+          <div key={d.pair+"p"} style={{ padding: "10px 8px", fontSize: 14, fontWeight: 700, color: T.text, borderBottom: `1px solid ${T.border}` }}>{d.pair}</div>,
+          <div key={d.pair+"pnl"} style={{ padding: "10px 8px", fontSize: 14, fontWeight: 700, textAlign: "right", color: pnlColor(d.pnl, T), borderBottom: `1px solid ${T.border}` }}>{fmt(d.pnl)}</div>,
+          <div key={d.pair+"c"} style={{ padding: "10px 8px", fontSize: 14, textAlign: "right", color: T.textSub, borderBottom: `1px solid ${T.border}` }}>{d.count}</div>,
+          <div key={d.pair+"w"} style={{ padding: "10px 8px", fontSize: 13, textAlign: "right", color: T.textSub, borderBottom: `1px solid ${T.border}` }}>
+            {wr !== "—" ? wr + "%" : "—"}<span style={{ color: T.textFaint, marginLeft: 4 }}>({d.wins}/{d.losses}/{d.draws})</span>
+          </div>,
+        ];
+      })}
     </div>
   );
 }
@@ -1583,13 +1578,13 @@ function App({ onLogout, userEmail }) {
   });
 
   const tabs = [
-    { id: "calendar", label: "カレンダー" },
-    { id: "violations", label: "ルール違反" },
-    { id: "equity", label: "損益曲線" },
-    { id: "hourly", label: "時間帯" },
-    { id: "pair", label: "通貨ペア" },
-    { id: "list", label: "履歴" },
-    { id: "settings", label: "⚙️ 設定" },
+    { id: "calendar",   icon: "📅", label: "カレンダー" },
+    { id: "equity",     icon: "📈", label: "損益曲線" },
+    { id: "hourly",     icon: "🕐", label: "時間帯" },
+    { id: "violations", icon: "⚠️", label: "ルール違反" },
+    { id: "pair",       icon: "💱", label: "通貨ペア" },
+    { id: "list",       icon: "📋", label: "履歴" },
+    { id: "settings",   icon: "⚙️", label: "設定" },
   ];
 
   const THEMES = {
@@ -1883,10 +1878,16 @@ function App({ onLogout, userEmail }) {
               border: activeTab === t.id ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.tabInactiveBorder}`,
               color: activeTab === t.id ? T.tabActiveText : T.tabInactiveText,
               boxShadow: activeTab === t.id && theme === "cyber" ? `0 0 12px ${T.tabActiveText}44` : "none",
-              borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 14,
-              whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace", fontWeight: activeTab === t.id ? 700 : 400,
+              borderRadius: 8, padding: "8px 14px", cursor: "pointer",
+              whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace",
+              fontWeight: activeTab === t.id ? 700 : 400,
               transition: "all 0.15s",
-            }}>{t.label}</button>
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+              minWidth: 52,
+            }}>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>{t.icon}</span>
+              <span style={{ fontSize: 10 }}>{t.label}</span>
+            </button>
           ))}
         </div>
 
@@ -1920,7 +1921,7 @@ function App({ onLogout, userEmail }) {
         )}
         {activeTab === "pair" && (
           <Section title="通貨ペア別パフォーマンス">
-            <PairAnalysis trades={trades} monthKey={selectedMonth} />
+            <PairAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "list" && (
