@@ -406,7 +406,7 @@ const fmt = (n) => {
   const abs = Math.abs(n);
   return (n < 0 ? "-" : "") + abs.toLocaleString("ja-JP");
 };
-const fmtPips = (n) => (n >= 0 ? "+" : "") + n.toFixed(1) + " pips";
+const fmtPips = (n) => (n >= 0 ? "+" : "") + n.toFixed(1);
 const pnlColor = (v, T) => v >= 0 ? (T?.positive || "#00e5a0") : (T?.negative || "#ff4d6d");
 
 // 勝ち/負け判定（勝ち閾値・負け閾値を個別指定、閾値以上/以下で判定）
@@ -754,8 +754,8 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
               {hasData && (
                 <div style={{ fontSize: 11, fontWeight: 700, color: pnlColor(displayVal ?? 0, T), lineHeight: 1.2, wordBreak: "break-all", textAlign: "center" }}>
                   {calendarUnit === "pips"
-                    ? (displayVal >= 0 ? "+" : "") + (displayVal ?? 0).toFixed(1)
-                    : (displayVal >= 0 ? "+" : "") + fmt(displayVal ?? 0)}
+                    ? (displayVal ?? 0).toFixed(1)
+                    : fmt(displayVal ?? 0)}
                 </div>
               )}
               {hasData && calendarSub !== "none" && (() => {
