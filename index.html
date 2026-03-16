@@ -665,7 +665,7 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
           </div>
           <div style={{ fontSize: 15, marginTop: 4 }}>
             <span style={{ color: pnlColor(monthPnL, T), fontWeight: 700, fontSize: 20 }}>{fmt(monthPnL)}</span>
-            <span style={{ color: T.textSub, marginLeft: 12 }}>取引日: {tradeDays}日 / 勝率: {monthWinRate}%</span>
+            <span style={{ color: T.textSub, marginLeft: 12 }}>勝率: {monthWinRate}%</span>
           </div>
         </div>
         <button onClick={() => {
@@ -676,14 +676,14 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
       </div>
 
       {/* Day labels */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr", gap: 4, marginBottom: 4 }}>
         {[["月","#666"],["火","#666"],["水","#666"],["木","#666"],["金","#666"],["土","#4a6fa5"],["日","#7a3a3a"]].map(([d, c]) => (
           <div key={d} style={{ textAlign: "center", fontSize: 12, color: c, padding: "2px 0" }}>{d}</div>
         ))}
       </div>
 
       {/* Cells */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr", gap: 4 }}>
         {cells.map((day, i) => {
           const colIndex = i % 7; // 0=月...4=金,5=土,6=日
           const isWeekend = colIndex >= 5;
@@ -1677,23 +1677,15 @@ function App() {
           </div>
         </div>
 
-        {/* Upload */}
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <button onClick={handleClearData} style={{
-            background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
-            color: "#ff4d6d", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15,
-            whiteSpace: "nowrap", flexShrink: 0,
-          }}>データ削除</button>
-
-          <label style={{
-            background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
-            color: "#00e5a0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700,
-            whiteSpace: "nowrap", flexShrink: 0, display: "inline-block",
-          }}>
-            CSV読込
-            <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
-          </label>
-        </div>
+        {/* CSV読込のみ */}
+        <label style={{
+          background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
+          color: "#00e5a0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700,
+          whiteSpace: "nowrap", flexShrink: 0, display: "inline-block",
+        }}>
+          CSV読込
+          <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+        </label>
       </div>
 
       {/* Import Result Toast */}
