@@ -1721,15 +1721,23 @@ function App() {
           </div>
         </div>
 
-        {/* CSV読込のみ */}
-        <label style={{
-          background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
-          color: "#00e5a0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700,
-          whiteSpace: "nowrap", flexShrink: 0, display: "inline-block",
-        }}>
-          CSV読込
-          <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
-        </label>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+          {onLogout && trades.length === 0 && (
+            <button onClick={onLogout} style={{
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+              color: "#666", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 13,
+              whiteSpace: "nowrap",
+            }}>ログアウト</button>
+          )}
+          <label style={{
+            background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
+            color: "#00e5a0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700,
+            whiteSpace: "nowrap", flexShrink: 0, display: "inline-block",
+          }}>
+            CSV読込
+            <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+          </label>
+        </div>
       </div>
 
       {/* Import Result Toast */}
