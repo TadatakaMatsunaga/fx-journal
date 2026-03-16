@@ -80,17 +80,6 @@
     function loadSession() { try { return JSON.parse(localStorage.getItem("fxjournal_session")); } catch { return null; } }
     function clearSession() { localStorage.removeItem("fxjournal_session"); }
 
-    async function refreshSession(refreshToken) {
-      const res = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error_description || "セッションの更新に失敗しました");
-      return data;
-    }
-
     async function refreshSession(session) {
       try {
         const res = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
@@ -241,7 +230,7 @@
             if (expiresAt && now > expiresAt - 60) {
               // 期限切れ → リフレッシュ
               try {
-                const newSession = await refreshSession(s.refresh_token);
+                const newSession = await refreshSession(s);
                 saveSession(newSession);
                 window.storage = makeStorage(newSession.user.id, newSession.access_token);
                 setSession(newSession);
