@@ -1192,7 +1192,7 @@ function PairAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.
   }, [trades, monthKey, winThreshold, lossThreshold]);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "36px 1fr 96px 1fr" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "56px 1fr 56px 1.2fr" }}>
       {/* Header */}
       {["ペア", "損益(円)", "取引数", "勝率 (勝/負/分)"].map((h, i) => (
         <div key={h} style={{ fontSize: 12, color: T.textMuted, padding: "6px 8px 8px",
