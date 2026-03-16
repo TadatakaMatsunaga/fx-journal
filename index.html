@@ -1441,7 +1441,7 @@ function ExportPanel({ trades, T }) {
 
 
 // ── Main App ───────────────────────────────────────────────────────────────
-function App() {
+function App({ onLogout, userEmail }) {
   const [trades, setTrades] = useState([]);
   const [activeTab, setActiveTab] = useState("calendar");
   const [settings, setSettings] = useState({});
