@@ -1818,14 +1818,15 @@ function App({ onLogout, userEmail }) {
           </div>
         </div>
 
-        {/* Upload */}
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <button onClick={handleClearData} style={{
-            background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
-            color: "#ff4d6d", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15,
-            whiteSpace: "nowrap", flexShrink: 0,
-          }}>データ削除</button>
-
+        {/* CSV読込のみ */}
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+          {onLogout && trades.length === 0 && (
+            <button onClick={onLogout} style={{
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+              color: "#666", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 13,
+              whiteSpace: "nowrap",
+            }}>ログアウト</button>
+          )}
           <label style={{
             background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
             color: "#00e5a0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700,
@@ -2108,6 +2109,25 @@ function App({ onLogout, userEmail }) {
 
               {/* データエクスポート */}
               <ExportPanel trades={trades} T={T} />
+
+              {/* データ管理 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>データ管理</div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button onClick={handleClearData} style={{
+                    background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
+                    color: T.negative, borderRadius: 8, padding: "8px 20px",
+                    cursor: "pointer", fontSize: 14, fontWeight: 600,
+                  }}>🗑 データ削除</button>
+                  {onLogout && (
+                    <button onClick={onLogout} style={{
+                      background: T.surface, border: `1px solid ${T.border}`,
+                      color: T.textSub, borderRadius: 8, padding: "8px 20px",
+                      cursor: "pointer", fontSize: 14,
+                    }}>ログアウト</button>
+                  )}
+                </div>
+              </div>
 
               {/* カレンダー表示単位 */}
               <div>
