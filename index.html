@@ -80,6 +80,31 @@
     function loadSession() { try { return JSON.parse(localStorage.getItem("fxjournal_session")); } catch { return null; } }
     function clearSession() { localStorage.removeItem("fxjournal_session"); }
 
+    async function refreshSession(refreshToken) {
+      const res = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error_description || "セッションの更新に失敗しました");
+      return data;
+    }
+
+    async function refreshSession(session) {
+      try {
+        const res = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
+          body: JSON.stringify({ refresh_token: session.refresh_token }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        saveSession(data);
+        return data;
+      } catch { return null; }
+    }
+
     function makeStorage(userId, accessToken) {
       return {
         async get(key) {
@@ -207,12 +232,31 @@
       const [ready, setReady] = useState(false);
 
       useEffect(() => {
-        const s = loadSession();
-        if (s) {
-          window.storage = makeStorage(s.user.id, s.access_token);
-          setSession(s);
-        }
-        setReady(true);
+        const init = async () => {
+          const s = loadSession();
+          if (s) {
+            // トークンの有効期限確認
+            const now = Math.floor(Date.now() / 1000);
+            const expiresAt = s.expires_at || 0;
+            if (expiresAt && now > expiresAt - 60) {
+              // 期限切れ → リフレッシュ
+              try {
+                const newSession = await refreshSession(s.refresh_token);
+                saveSession(newSession);
+                window.storage = makeStorage(newSession.user.id, newSession.access_token);
+                setSession(newSession);
+              } catch(e) {
+                console.warn("Token refresh failed:", e.message);
+                clearSession();
+              }
+            } else {
+              window.storage = makeStorage(s.user.id, s.access_token);
+              setSession(s);
+            }
+          }
+          setReady(true);
+        };
+        init();
       }, []);
 
       const handleLogin = (s) => {
