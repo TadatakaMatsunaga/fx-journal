@@ -180,9 +180,24 @@
         <div style={{ minHeight: "100vh", background: "#0d0d1a",
           display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ width: "100%", maxWidth: 360 }}>
-            <div style={{ fontSize: 28, fontWeight: 700, color: "#00e5a0",
-              fontFamily: "'Space Grotesk', sans-serif", marginBottom: 8, textAlign: "center" }}>
-              FX JOURNAL
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 8 }}>
+              <svg width="44" height="44" viewBox="0 0 40 40">
+                <rect x="1" y="1" width="38" height="38" rx="9" fill="#0d1f1e" stroke="#1D9E75" stroke-width="1.5"/>
+                <rect x="1" y="1" width="38" height="14" rx="9" fill="#1D9E75" opacity="0.35"/>
+                <rect x="1" y="10" width="38" height="4" fill="#1D9E75" opacity="0.35"/>
+                <circle cx="13" cy="21" r="4" fill="#00d4c8"/>
+                <circle cx="20" cy="21" r="4" fill="#00d4c8"/>
+                <circle cx="27" cy="21" r="4" fill="#ff4d7a"/>
+                <circle cx="13" cy="30" r="4" fill="#00d4c8"/>
+                <circle cx="20" cy="30" r="4" fill="#ff4d7a"/>
+                <circle cx="27" cy="30" r="4" fill="#00d4c8"/>
+              </svg>
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", lineHeight: 1 }}>
+                  <span style={{ color: "#00d4c8" }}>FX</span><span style={{ color: "#e8eef8" }}>MATE</span>
+                </div>
+                <div style={{ fontSize: 11, color: "#3a5580", letterSpacing: 1 }}>your trade companion</div>
+              </div>
             </div>
             <div style={{ fontSize: 13, color: "#555", textAlign: "center", marginBottom: 32 }}>
               {mode === "login" ? "ログイン" : "新規登録"}
@@ -1696,12 +1711,16 @@ function App({ onLogout, userEmail }) {
         display: "flex", alignItems: "center", justifyContent: "space-between",
         position: "sticky", top: 0, zIndex: 100, backdropFilter: "blur(12px)",
       }}>
-        <div style={{ minWidth: 0, flex: 1, marginRight: 12 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: T.positive, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: -0.5, textShadow: theme === "cyber" ? `0 0 20px ${T.positive}88` : "none" }}>
-            FX JOURNAL
-          </div>
-          <div style={{ fontSize: 14, color: "#555", marginTop: 2 }}>
-            {isLoading ? "読み込み中..." : trades.length === 0 ? "CSVを読み込んでください" : `${trades.length}件のトレードを記録中`}
+        <div style={{ minWidth: 0, flex: 1, marginRight: 12, display: "flex", alignItems: "center", gap: 10 }}>
+          <FxMateIcon size={32} theme={theme} />
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: -0.5, lineHeight: 1 }}>
+              <span style={{ color: T.positive, textShadow: theme === "cyber" ? `0 0 20px ${T.positive}88` : "none" }}>FX</span>
+              <span style={{ color: T.text }}>MATE</span>
+            </div>
+            <div style={{ fontSize: 11, color: T.textFaint, letterSpacing: 1, marginTop: 1 }}>
+              {isLoading ? "読み込み中..." : trades.length === 0 ? "CSVを読み込んでください" : `${trades.length}件のトレードを記録中`}
+            </div>
           </div>
         </div>
 
@@ -2028,4 +2047,3654 @@ function App({ onLogout, userEmail }) {
     reactRoot.render(React.createElement(Root));
   </script>
 </body>
-</html>
+</html
+
+// ── Pair name normalizer ───────────────────────────────────────────────────
+function normalizePair(raw) {
+  if (!raw) return "UNKNOWN";
+  // ドル/円 → USD/JPY style mapping
+  const map = {
+    "ドル/円": "USD/JPY", "ユーロ/円": "EUR/JPY", "ユーロ/ドル": "EUR/USD",
+    "ポンド/円": "GBP/JPY", "ポンド/ドル": "GBP/USD", "豪ドル/円": "AUD/JPY",
+    "豪ドル/ドル": "AUD/USD", "NZドル/円": "NZD/JPY", "NZドル/ドル": "NZD/USD",
+    "カナダドル/円": "CAD/JPY", "スイスフラン/円": "CHF/JPY",
+    "ドル/スイスフラン": "USD/CHF", "ユーロ/ポンド": "EUR/GBP",
+  };
+  for (const [jp, en] of Object.entries(map)) {
+    if (raw.includes(jp.split("/")[0]) && raw.includes(jp.split("/")[1].replace("円","~"))) {
+      return en;
+    }
+  }
+  return map[raw] || raw;
+}
+
+// ── CSV Parser (handles Shift-JIS broker format & generic CSV) ─────────────
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim());
+
+  // Detect broker format by Japanese header keywords
+  const isBrokerFormat =
+    headers.some(h => h.includes("注文番号") || h.includes("新規") || h.includes("売買損益") || h.includes("通貨ペア") || h.includes("ペア"));
+
+  if (isBrokerFormat) {
+    // Column index detection
+    const hi = (kw) => headers.findIndex(h => h.includes(kw));
+    const idxType    = hi("新規");      // 新規/決済
+    const idxPair    = hi("通貨") !== -1 ? hi("通貨") : hi("ペア");
+    const idxDir     = hi("売買");
+    const idxEntry   = hi("約定価格") !== -1 ? hi("約定価格") : hi("新規約定");
+    const idxQty     = hi("注文数量") !== -1 ? hi("注文数量") : hi("数量");
+    const idxDate    = hi("注文日時") !== -1 ? hi("注文日時") : hi("約定日時");
+    const idxExitDate= hi("約定日時") !== -1 ? hi("約定日時") : hi("決済日時");
+    const idxPnl     = hi("売買損益");
+    const idxNewPrice= hi("新規約定価格");
+
+    const idxNewOrderId = hi("新規注文番号");
+    const idxOrderId    = hi("注文番号");
+    const idxOpenDate   = hi("約定日時") !== -1 ? hi("約定日時") : hi("注文日時");
+
+    // 新規行の注文番号→約定日時マップ
+    const openTimeMap = {};
+    lines.slice(1).forEach(line => {
+      const v = line.split(",").map(s => s.trim());
+      if ((v[idxType] || "").includes("新規")) {
+        const oid = idxOrderId >= 0 ? v[idxOrderId] : "";
+        const odt = idxOpenDate >= 0 ? v[idxOpenDate] : "";
+        if (oid && odt) openTimeMap[oid] = odt;
+      }
+    });
+
+    return lines.slice(1).map((line, i) => {
+      const v = line.split(",").map(s => s.trim());
+      const type = v[idxType] || "";
+      if (!type.includes("決済")) return null; // only closed trades
+
+      const dateRaw = (idxExitDate >= 0 ? v[idxExitDate] : v[idxDate]) || "";
+      // "2026/03/05 00:57:38" → date + time
+      const [datePart, timePart] = dateRaw.split(" ");
+      const date = datePart ? datePart.replace(/\//g, "-") : "";
+      const time = timePart ? timePart.substring(0, 5) : "00:00";
+
+      const pairRaw = idxPair >= 0 ? v[idxPair] : "";
+      const pair = normalizePair(pairRaw);
+
+      const dirRaw = idxDir >= 0 ? v[idxDir] : "";
+      // 売=SELL新規 → closed with BUY exit; 買=BUY新規 → closed with SELL exit
+      // The direction stored is the opening direction
+      // dirRaw は決済側の売買 → 新規（オープン）の方向は逆
+      const direction = dirRaw.includes("売") ? "BUY" : dirRaw.includes("買") ? "SELL" : dirRaw;
+
+      const pnl = idxPnl >= 0 ? parseFloat(v[idxPnl]) || 0 : 0;
+      const exitPrice = idxEntry >= 0 ? parseFloat(v[idxEntry]) || 0 : 0;
+      const entryPrice = idxNewPrice >= 0 ? parseFloat(v[idxNewPrice]) || 0 : 0;
+      const qty = idxQty >= 0 ? parseFloat(v[idxQty]) || 0 : 0;
+
+      // pips calculation: price diff * direction factor
+      const priceDiff = exitPrice - entryPrice;
+      const pipFactor = pair.includes("JPY") ? 100 : 10000;
+      const pips = direction === "BUY"
+        ? +(priceDiff * pipFactor).toFixed(1)
+        : +(-priceDiff * pipFactor).toFixed(1);
+
+      // 保有時間計算
+      const newOrderId = idxNewOrderId >= 0 ? v[idxNewOrderId] : "";
+      const openDtRaw = openTimeMap[newOrderId] || "";
+      let holdMin = null;
+      if (openDtRaw && dateRaw) {
+        const tOpen = new Date(openDtRaw.replace(/\//g, "-").replace(" ", "T"));
+        const tClose = new Date(dateRaw.replace(/\//g, "-").replace(" ", "T"));
+        const diff = (tClose - tOpen) / 60000;
+        if (!isNaN(diff) && diff >= 0) holdMin = diff; // 小数付き分数
+      }
+
+      const orderId = idxOrderId >= 0 ? v[idxOrderId] : null;
+      return { id: i + 1, orderId, date, time, pair, direction, lots: qty / 10000 || 1, entryPrice, exitPrice, pnl, pips, holdMin };
+    }).filter(r => r && r.date);
+  }
+
+  // Generic CSV fallback
+  const normH = headers.map(h => h.toLowerCase().replace(/\s+/g, "_"));
+  return lines.slice(1).map((line, i) => {
+    const vals = line.split(",").map(v => v.trim());
+    const obj = { id: i + 1 };
+    normH.forEach((h, idx) => { obj[h] = vals[idx] ?? ""; });
+    if (!obj.pnl && obj.profit_loss) obj.pnl = obj.profit_loss;
+    if (!obj.pnl && obj.profit) obj.pnl = obj.profit;
+    obj.pnl = parseFloat(obj.pnl) || 0;
+    obj.pips = parseFloat(obj.pips) || 0;
+    if (!obj.pair && obj.symbol) obj.pair = obj.symbol;
+    if (!obj.time) obj.time = "00:00";
+    return obj;
+  }).filter(r => r.date);
+}
+
+// ── Theme Context ─────────────────────────────────────────────────────────
+const ThemeContext = createContext({});
+const useTheme = () => useContext(ThemeContext);
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+const fmt = (n) => {
+  const abs = Math.abs(n);
+  return (n < 0 ? "-" : "") + abs.toLocaleString("ja-JP");
+};
+const fmtPips = (n) => (n >= 0 ? "+" : "") + n.toFixed(1) + " pips";
+const pnlColor = (v, T) => v >= 0 ? (T?.positive || "#00e5a0") : (T?.negative || "#ff4d6d");
+
+// 勝ち/負け判定（勝ち閾値・負け閾値を個別指定、閾値以上/以下で判定）
+const tradeResult = (t, winThreshold = 0.0, lossThreshold = 0.0) => {
+  if (t.pips >= winThreshold) return "win";
+  if (t.pips <= -lossThreshold) return "loss";
+  return "draw";
+};
+const resultColor = (r, T) => r === "win" ? (T?.positive || "#00e5a0") : r === "loss" ? (T?.negative || "#ff4d6d") : (T?.textMuted || "#888");
+
+// ── Trading Date (07:00〜翌06:59 を1日とする) ──────────────────────────────
+// 時刻が 00:00〜06:59 の場合は前日扱い
+function getTradingDate(date, time) {
+  if (!date) return date;
+  const [h, m] = (time || "00:00").split(":").map(Number);
+  const totalMin = h * 60 + (m || 0);
+  if (totalMin < 7 * 60) {
+    // 前日にずらす - Date オブジェクトを使わず文字列計算でタイムゾーン問題を回避
+    const [y, mo, d] = date.split("-").map(Number);
+    let pd = d - 1, pm = mo, py = y;
+    if (pd === 0) {
+      pm--;
+      if (pm === 0) { pm = 12; py--; }
+      const daysInMonth = new Date(py, pm, 0).getDate();
+      pd = daysInMonth;
+    }
+    return `${py}-${String(pm).padStart(2,"0")}-${String(pd).padStart(2,"0")}`;
+  }
+  return date;
+}
+
+// ── Calendar View ──────────────────────────────────────────────────────────
+// ── Day Detail Modal ──────────────────────────────────────────────────────
+function DayModal({ date: initialDate, trades, onClose, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+  const [date, setDate] = useState(initialDate);
+
+  // 取引のある日付一覧（昇順）
+  const tradingDates = useMemo(() => {
+    const days = new Set(trades.map(t => getTradingDate(t.date, t.time)));
+    return [...days].sort();
+  }, [trades]);
+
+  const currentIdx = tradingDates.indexOf(date);
+  const prevDate = currentIdx > 0 ? tradingDates[currentIdx - 1] : null;
+  const nextDate = currentIdx < tradingDates.length - 1 ? tradingDates[currentIdx + 1] : null;
+
+  const dayTrades = useMemo(() =>
+    trades
+      .filter(t => getTradingDate(t.date, t.time) === date)
+      .sort((a, b) => {
+        const toMin = t => {
+          const [h, m] = (t.time || "00:00").split(":").map(Number);
+          const total = h * 60 + m;
+          return total < 7 * 60 ? total + 24 * 60 : total;
+        };
+        if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+        return toMin(a) - toMin(b);
+      }),
+  [trades, date]);
+
+  const wins = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
+  const losses = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
+  const draws = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
+  const totalPnL = dayTrades.reduce((s, t) => s + t.pnl, 0);
+  const decided = wins.length + losses.length;
+  const winRate = decided ? (wins.length / decided * 100).toFixed(1) : "—";
+  const avgWinPips = wins.length ? (wins.reduce((s, t) => s + t.pips, 0) / wins.length).toFixed(2) : "—";
+  const avgLossPips = losses.length ? (losses.reduce((s, t) => s + t.pips, 0) / losses.length).toFixed(2) : "—";
+
+  const violations = calcViolations(dayTrades);
+  const v = violations[date];
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 500,
+      background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 16,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#13131f", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: 16, padding: 24, width: "100%", maxWidth: 480,
+        maxHeight: "85vh", overflowY: "auto",
+      }}>
+        {/* Modal Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => prevDate && setDate(prevDate)}
+              style={{ ...navBtn, ...T.navBtn, opacity: prevDate ? 1 : 0.2, cursor: prevDate ? "pointer" : "default", width: 30, height: 30, fontSize: 16 }}>‹</button>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: T.text, textAlign: "center" }}>{date}</div>
+              <div style={{ fontSize: 13, color: T.textMuted, marginTop: 2, textAlign: "center" }}>{dayTrades.length}件のトレード</div>
+            </div>
+            <button onClick={() => nextDate && setDate(nextDate)}
+              style={{ ...navBtn, ...T.navBtn, opacity: nextDate ? 1 : 0.2, cursor: nextDate ? "pointer" : "default", width: 30, height: 30, fontSize: 16 }}>›</button>
+          </div>
+          <button onClick={onClose} style={{
+            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+            color: "#888", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 17,
+          }}>×</button>
+        </div>
+
+        {/* Summary Stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+          {[
+            { label: "日間損益", value: fmt(totalPnL), color: pnlColor(totalPnL, T), big: true },
+            { label: "勝率", value: winRate === "—" ? "—" : winRate + "%", color: T.text },
+            { label: "取引数", value: `${dayTrades.length} (勝${wins.length}/負${losses.length}/分${draws.length})`, color: T.text },
+            { label: "勝の平均pips", value: avgWinPips === "—" ? "—" : "+" + avgWinPips, color: T.positive },
+            { label: "負の平均pips", value: avgLossPips === "—" ? "—" : avgLossPips, color: T.negative },
+          ].map(c => (
+            <div key={c.label} style={{
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)",
+              borderRadius: 10, padding: "12px 14px",
+            }}>
+              <div style={{ fontSize: 14, color: "#555", marginBottom: 4 }}>{c.label}</div>
+              <div style={{ fontSize: c.big ? 20 : 15, fontWeight: 700, color: c.color }}>{c.value}</div>
+            </div>
+          ))}
+          {v && (
+            <div style={{
+              background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
+              borderRadius: 10, padding: "12px 14px",
+            }}>
+              <div style={{ fontSize: 14, color: T.negative, marginBottom: 4 }}>ルール違反</div>
+              <div style={{ fontSize: 15, color: T.negative, fontWeight: 700 }}>
+                違反: {v.v1}回
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Day Equity Curve */}
+        {dayTrades.length > 1 && (() => {
+          let cum = 0;
+          const curveData = dayTrades.map((t, i) => {
+            cum += t.pnl;
+            return { idx: i, pnl: cum, time: t.time, pair: t.pair };
+          });
+          const isPositive = cum >= 0;
+          const color = isPositive ? T.positive : T.negative;
+          return (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 6 }}>日中損益曲線</div>
+              <ResponsiveContainer width="100%" height={100}>
+                <AreaChart data={curveData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="dayGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={color} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.chartGrid} />
+                  <XAxis dataKey="time" tick={{ fill: T.chartTick, fontSize: 11 }} interval="preserveStartEnd" height={20} />
+                  <YAxis tickFormatter={v => (v / 1000).toFixed(0) + "K"} tick={{ fill: T.chartTick, fontSize: 11 }} width={36} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null;
+                      return (
+                        <div style={{ background: T.tooltipBg, border: `1px solid ${T.tooltipBorder}`, borderRadius: 6, padding: "6px 10px", fontSize: 12 }}>
+                          <div style={{ color: T.textSub }}>{payload[0].payload.time} {payload[0].payload.pair}</div>
+                          <div style={{ color: pnlColor(payload[0].value, T), fontWeight: 700 }}>{fmt(payload[0].value)}</div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Area type="monotone" dataKey="pnl" stroke={color} strokeWidth={1.5} fill="url(#dayGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        })()}
+
+        {/* Trade List */}
+        <div style={{ fontSize: 15, color: "#555", marginBottom: 8 }}>トレード一覧</div>
+        {dayTrades.map(t => {
+          const r = tradeResult(t, winThreshold, lossThreshold);
+          return (
+            <div key={t.id} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 14,
+            }}>
+              <div style={{ color: "#666", width: 44 }}>{t.time}</div>
+              <div style={{ color: T.text, fontWeight: 600, width: 68 }}>{t.pair}</div>
+              <span style={{
+                padding: "1px 6px", borderRadius: 4, fontSize: 14, fontWeight: 700, width: 32, textAlign: "center",
+                background: t.direction === "BUY" ? "rgba(0,229,160,0.15)" : "rgba(255,77,109,0.15)",
+                color: t.direction === "BUY" ? T.positive : T.negative,
+              }}>{t.direction}</span>
+              <div style={{ flex: 1, textAlign: "right", fontWeight: 700, color: pnlColor(t.pnl, T) }}>{fmt(t.pnl)}</div>
+              <div style={{ width: 60, textAlign: "right", color: pnlColor(t.pips, T) }}>{fmtPips(t.pips)}</div>
+              <span style={{
+                padding: "1px 6px", borderRadius: 4, fontSize: 14, fontWeight: 700,
+                background: r === "win" ? "rgba(0,229,160,0.15)" : r === "loss" ? "rgba(255,77,109,0.15)" : "rgba(136,136,136,0.15)",
+                color: resultColor(r, T),
+              }}>{r === "win" ? "勝" : r === "loss" ? "負" : "分"}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 'pnl', selectedMonth, winThreshold = 0.0, lossThreshold = 0.0, violThreshold = -6.0 }) {
+  const T = useTheme();
+  const [calendarUnit, setCalendarUnit] = useState(calendarUnitProp);
+  const [viewDate, setViewDate] = useState(() => {
+    if (trades.length === 0) return new Date();
+    const tradingDates = trades.map(t => getTradingDate(t.date, t.time)).sort().reverse();
+    const latest = tradingDates[0] || trades[0].date;
+    return new Date(latest + "T12:00:00");
+  });
+
+  // サマリーなど外部からの月変更に追従
+  useEffect(() => {
+    if (selectedMonth) {
+      setViewDate(new Date(selectedMonth + "-15T12:00:00"));
+    }
+  }, [selectedMonth]);
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
+  const dailyPnL = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      map[td] = (map[td] || 0) + t.pnl;
+    });
+    return map;
+  }, [trades]);
+
+  const dailyPips = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      map[td] = (map[td] || 0) + t.pips;
+    });
+    return map;
+  }, [trades]);
+
+  // サブ表示項目: winRate / count / violations
+  const [calendarSub, setCalendarSub] = useState("none");
+
+  const dailyStats = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      if (!map[td]) map[td] = { wins: 0, losses: 0, draws: 0, count: 0, viols: 0 };
+      map[td].count++;
+      const r = tradeResult(t, winThreshold, lossThreshold);
+      if (r === "win") map[td].wins++;
+      else if (r === "loss") map[td].losses++;
+      else map[td].draws++;
+      if (t.pips <= violThreshold) map[td].viols++;
+    });
+    return map;
+  }, [trades, winThreshold, lossThreshold, violThreshold]);
+
+  const firstDay = (new Date(year, month, 1).getDay() + 6) % 7; // 月曜=0, 日曜=6
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const monthPnL = Object.entries(dailyPnL).filter(([k]) => k.startsWith(monthKey)).reduce((s, [, v]) => s + v, 0);
+  const tradeDays = Object.keys(dailyPnL).filter(k => k.startsWith(monthKey)).length;
+  const monthTrades = trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey));
+  const monthWins = monthTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win").length;
+  const monthDecided = monthTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) !== "draw").length;
+  const monthWinRate = monthDecided ? Math.round(monthWins / monthDecided * 100) : 0;
+
+  return (
+    <div style={{ fontFamily: "'DM Mono', monospace" }}>
+      {selectedDay && (
+        <DayModal date={selectedDay} trades={trades} onClose={() => setSelectedDay(null)} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+      )}
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <button onClick={() => {
+          const d = new Date(year, month - 1, 1);
+          setViewDate(d);
+          onMonthChange && onMonthChange(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+        }} style={{...navBtn, ...T.navBtn}}>‹</button>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: T.text, letterSpacing: 2 }}>
+            {year}年 {month + 1}月
+          </div>
+          <div style={{ fontSize: 15, marginTop: 4 }}>
+            <span style={{ color: pnlColor(monthPnL, T), fontWeight: 700, fontSize: 20 }}>{fmt(monthPnL)}</span>
+            <span style={{ color: T.textSub, marginLeft: 12 }}>勝率: {monthWinRate}%</span>
+          </div>
+        </div>
+        <button onClick={() => {
+          const d = new Date(year, month + 1, 1);
+          setViewDate(d);
+          onMonthChange && onMonthChange(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+        }} style={{...navBtn, ...T.navBtn}}>›</button>
+      </div>
+
+      {/* Day labels */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr", gap: 4, marginBottom: 4 }}>
+        {[["月","#666"],["火","#666"],["水","#666"],["木","#666"],["金","#666"],["土","#4a6fa5"],["日","#7a3a3a"]].map(([d, c]) => (
+          <div key={d} style={{ textAlign: "center", fontSize: 12, color: c, padding: "2px 0" }}>{d}</div>
+        ))}
+      </div>
+
+      {/* Cells */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr", gap: 4 }}>
+        {cells.map((day, i) => {
+          const colIndex = i % 7; // 0=月...4=金,5=土,6=日
+          const isWeekend = colIndex >= 5;
+          if (!day) return <div key={`e-${i}`} />;
+          const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const pnl = dailyPnL[key];
+          const pips = dailyPips[key];
+          const displayVal = calendarUnit === "pips" ? pips : pnl;
+          const hasData = pnl !== undefined;
+          const isToday = new Date().toISOString().split("T")[0] === key;
+          const intensity = hasData ? Math.min(Math.abs(pnl) / 30000, 1) : 0;
+          const bg = hasData
+            ? pnl >= 0
+              ? `rgba(0, 229, 160, ${0.12 + intensity * 0.35})`
+              : `rgba(255, 77, 109, ${0.12 + intensity * 0.35})`
+            : "rgba(255,255,255,0.03)";
+          return (
+            <div key={key} onClick={() => hasData && setSelectedDay(key)} style={{
+              background: isWeekend && !hasData ? "rgba(255,255,255,0.01)" : bg,
+              border: isToday ? "1px solid #f5c842" : "1px solid rgba(255,255,255,0.04)",
+              borderRadius: 6, padding: "4px 2px", textAlign: "center",
+              minHeight: 54,
+              display: "flex", flexDirection: "column", justifyContent: "space-between",
+              cursor: hasData ? "pointer" : "default",
+              transition: "border-color 0.15s",
+              opacity: isWeekend && !hasData ? 0.4 : 1,
+            }}
+            onMouseEnter={e => { if (hasData) e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; }}
+            onMouseLeave={e => { if (hasData) e.currentTarget.style.borderColor = isToday ? "#f5c842" : "rgba(255,255,255,0.05)"; }}
+            >
+              <div style={{ fontSize: 13, color: isToday ? "#f5c842" : "#999" }}>{day}</div>
+              {hasData && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: pnlColor(displayVal ?? 0, T), lineHeight: 1.2, wordBreak: "break-all", textAlign: "center" }}>
+                  {calendarUnit === "pips"
+                    ? (displayVal >= 0 ? "+" : "") + (displayVal ?? 0).toFixed(1)
+                    : (displayVal >= 0 ? "+" : "") + fmt(displayVal ?? 0)}
+                </div>
+              )}
+              {hasData && calendarSub !== "none" && (() => {
+                const s = dailyStats[key];
+                if (!s) return null;
+                if (calendarSub === "winRate") {
+                  const dec = s.wins + s.losses;
+                  const wr = dec ? Math.round(s.wins / dec * 100) : null;
+                  return <div style={{ fontSize: 11, color: wr >= 50 ? T.positive : T.negative, lineHeight: 1 }}>{wr !== null ? wr + "%" : "—"}</div>;
+                }
+                if (calendarSub === "count") {
+                  return <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1 }}>{s.count}件</div>;
+                }
+                if (calendarSub === "viols") {
+                  return s.viols > 0
+                    ? <div style={{ fontSize: 11, color: T.negative, lineHeight: 1 }}>⚠{s.viols}</div>
+                    : null;
+                }
+              })()}
+            </div>
+          );
+        })}
+      </div>
+      {/* Toggles */}
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[["pnl", "¥"], ["pips", "pips"]].map(([val, label]) => (
+            <button key={val} onClick={() => setCalendarUnit(val)} style={{
+              padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              border: calendarUnit === val ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.border}`,
+              background: calendarUnit === val ? T.tabActive : T.surface,
+              color: calendarUnit === val ? T.tabActiveText : T.textMuted,
+            }}>{label}</button>
+          ))}
+        </div>
+        <div style={{ width: 1, height: 18, background: T.border }} />
+        <div style={{ display: "flex", gap: 4 }}>
+          {[["none", "—"], ["winRate", "勝率"], ["count", "件数"], ["viols", "違反"]].map(([val, label]) => (
+            <button key={val} onClick={() => setCalendarSub(val)} style={{
+              padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              border: calendarSub === val ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.border}`,
+              background: calendarSub === val ? T.tabActive : T.surface,
+              color: calendarSub === val ? T.tabActiveText : T.textMuted,
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Rule Violation Calculator ─────────────────────────────────────────────
+function calcViolations(trades, violThreshold = -6.0) {
+  // Group by date, sort each day's trades by datetime
+  const byDate = {};
+  trades.forEach(t => {
+    const td = getTradingDate(t.date, t.time);
+    if (!byDate[td]) byDate[td] = [];
+    byDate[td].push(t);
+  });
+  const result = {};
+  Object.entries(byDate).forEach(([date, dayTrades]) => {
+    const sorted = [...dayTrades].sort((a, b) => {
+      const ta = new Date(a.date + "T" + (a.time || "00:00"));
+      const tb = new Date(b.date + "T" + (b.time || "00:00"));
+      return ta - tb;
+    });
+    let v1 = 0;
+    sorted.forEach(t => {
+      if (t.pips <= violThreshold) v1++;
+    });
+    if (v1 > 0) result[date] = { v1, total: v1 };
+  });
+  return result;
+}
+
+// ── Stats Cards ────────────────────────────────────────────────────────────
+function StatsCards({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+  const stats = useMemo(() => {
+    const filtered = monthKey
+      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      : trades;
+    const wins = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
+    const losses = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
+    const draws = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
+    const monthPnL = filtered.reduce((s, t) => s + t.pnl, 0);
+    const monthPips = filtered.reduce((s, t) => s + (t.pips || 0), 0);
+    const decided = wins.length + losses.length;
+    const winRate = decided ? (wins.length / decided * 100).toFixed(1) : 0;
+    const avgWinPips = wins.length ? (wins.reduce((s, t) => s + t.pips, 0) / wins.length).toFixed(2) : "—";
+    const avgLossPips = losses.length ? (losses.reduce((s, t) => s + t.pips, 0) / losses.length).toFixed(2) : "—";
+    return {
+      monthPnL, monthPips, winRate,
+      total: filtered.length, wins: wins.length, losses: losses.length, draws: draws.length,
+      avgWinPips, avgLossPips,
+    };
+  }, [trades, monthKey, winThreshold]);
+
+  // データなしでも表示（値は0や—）
+
+  const statItems = [
+    {
+      label: "月間損益",
+      value: fmt(stats.monthPnL),
+      sub: (stats.monthPips >= 0 ? "+" : "") + (stats.monthPips || 0).toFixed(1) + " pips",
+      color: pnlColor(stats.monthPnL, T),
+      big: true,
+    },
+    {
+      label: "勝率",
+      value: stats.winRate + "%",
+      sub: `${stats.wins}勝 ${stats.losses}負 ${stats.draws}分`,
+      color: T.text,
+    },
+
+    {
+      label: "勝の平均pips",
+      value: stats.avgWinPips === "—" ? "—" : "+" + stats.avgWinPips,
+      sub: null,
+      color: T.positive,
+    },
+    {
+      label: "負の平均pips",
+      value: stats.avgLossPips === "—" ? "—" : stats.avgLossPips,
+      sub: null,
+      color: T.negative,
+    },
+  ];
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
+      {statItems.map(c => (
+        <div key={c.label} style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderRadius: 10,
+          padding: "14px 16px",
+        }}>
+          <div style={{ fontSize: 15, color: T.textMuted, marginBottom: 6, letterSpacing: 1 }}>{c.label}</div>
+          <div style={{ fontSize: c.big ? 22 : 18, fontWeight: 700, color: c.color }}>{c.value}</div>
+          {c.sub && <div style={{ fontSize: 14, color: T.textFaint, marginTop: 4 }}>{c.sub}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Violation Table ────────────────────────────────────────────────────────
+// ── Tooltip wrapper ───────────────────────────────────────────────────────
+function WithTooltip({ tip, children }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      {children}
+      {show && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 6px)", left: "50%",
+          transform: "translateX(-50%)",
+          background: "#1e1e2e", border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#ccc",
+          whiteSpace: "nowrap", zIndex: 200, pointerEvents: "none",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+        }}>
+          {tip}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ViolationTable({ trades, monthKey, onDrillDown, violThreshold = -6.0 }) {
+  const T = useTheme();
+  const violations = useMemo(() => {
+    const filtered = monthKey
+      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      : trades;
+    return calcViolations(filtered, violThreshold);
+  }, [trades, monthKey]);
+
+  // 当月の取引があった全日付を昇順で取得
+  const allTradeDays = useMemo(() => {
+    const days = [...new Set(
+      trades
+        .map(t => getTradingDate(t.date, t.time))
+        .filter(d => monthKey ? d.startsWith(monthKey) : true)
+    )].sort();
+    return days;
+  }, [trades, monthKey]);
+
+  const entries = allTradeDays.map(date => [date, violations[date] || { v1: 0, v2: 0, total: 0 }]);
+  if (!entries.length) return (
+    <div style={{ color: "#555", fontSize: 15, padding: "20px 0" }}>ルール違反なし ✓</div>
+  );
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, marginBottom: 8 }}>
+        {[
+          { label: "日付", tip: null },
+          { label: "ルール違反", tip: `1トレードで ${violThreshold}pips 以下の損切り` },
+        ].map(({ label, tip }) => (
+          <div key={label} style={{ fontSize: 15, color: "#555", padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+            {tip ? <WithTooltip tip={tip}><span style={{ borderBottom: "1px dashed #555", cursor: "default" }}>{label}</span></WithTooltip> : label}
+          </div>
+        ))}
+      </div>
+      {entries.map(([date, v]) => (
+        <div key={date} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0,
+          borderBottom: "1px solid rgba(255,255,255,0.04)", background: v.total > 2 ? "rgba(255,77,109,0.04)" : "transparent" }}>
+          <div style={{ padding: "9px 10px", fontSize: 15, color: "#aaa" }}>{date}</div>
+          <div style={{ padding: "9px 10px", fontSize: 15 }}>
+            {v.v1 > 0
+              ? <span
+                  onClick={() => onDrillDown && onDrillDown(date)}
+                  style={{ color: T.negative, fontWeight: 700, cursor: "pointer",
+                    borderBottom: `1px dashed ${T.negative}60`, paddingBottom: 1 }}>
+                  {v.v1}回
+                </span>
+              : <span style={{ color: "#555" }}>—</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Equity Curve ───────────────────────────────────────────────────────────
+function EquityCurve({ trades, monthKey }) {
+  const T = useTheme();
+  const data = useMemo(() => {
+    const filtered = monthKey
+      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      : trades;
+    const sorted = [...filtered].sort((a, b) => new Date(a.date + "T" + a.time) - new Date(b.date + "T" + b.time));
+    let cum = 0;
+    return sorted.map((t, i) => {
+      cum += t.pnl;
+      const td = getTradingDate(t.date, t.time);
+      return { pnl: cum, idx: i, date: td, time: t.time };
+    });
+  }, [trades, monthKey]);
+
+  // 日の境目インデックスとラベルを収集
+  const dayTicks = useMemo(() => {
+    const seen = new Set();
+    const result = [];
+    data.forEach(d => {
+      if (!seen.has(d.date)) {
+        seen.add(d.date);
+        result.push({ idx: d.idx, label: String(parseInt(d.date.slice(8), 10)) });
+      }
+    });
+    return result;
+  }, [data]);
+
+  const tickIndices = dayTicks.map(d => d.idx);
+  const tickMap = Object.fromEntries(dayTicks.map(d => [d.idx, d.label]));
+
+  return (
+    <div>
+      <div style={{ marginBottom: 4, fontSize: 15, color: T.textMuted }}>累計損益</div>
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={T.positive} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={T.positive} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke={T.chartGrid} />
+          <XAxis
+            dataKey="idx"
+            type="number"
+            domain={[0, data.length - 1]}
+            ticks={tickIndices}
+            tickFormatter={v => tickMap[v] || ""}
+            tick={{ fill: T.chartTick, fontSize: 12 }}
+            height={28}
+          />
+          <YAxis tickFormatter={v => (v / 1000).toFixed(0) + "K"} tick={{ fill: T.chartTick, fontSize: 12 }} width={40} />
+          <Tooltip
+            content={({ active, payload }) => {
+              if (!active || !payload || !payload.length) return null;
+              return (
+                <div style={{ background: T.tooltipBg, border: `1px solid ${T.tooltipBorder}`, borderRadius: 8, padding: "8px 12px", fontSize: 14 }}>
+                  <div style={{ color: T.textSub, marginBottom: 4 }}>{payload[0].payload.date} {payload[0].payload.time}</div>
+                  <div style={{ color: pnlColor(payload[0].value, T), fontWeight: 700 }}>{fmt(payload[0].value)}</div>
+                </div>
+              );
+            }}
+          />
+          <Area type="monotone" dataKey="pnl" stroke={T.positive} strokeWidth={1.5} fill="url(#pnlGrad)" dot={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── Hourly Analysis ────────────────────────────────────────────────────────
+function HourlyAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+  const data = useMemo(() => {
+    const filtered = monthKey
+      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      : trades;
+    const hourOrder = [...Array(24).keys()].map(i => (i + 7) % 24);
+    const hours = hourOrder.map(h => ({ hour: h, pnl: 0, wins: 0, losses: 0, draws: 0, totalPips: 0, winPips: 0, lossPips: 0, count: 0 }));
+    filtered.forEach(t => {
+      const h = parseInt((t.time || "00:00").split(":")[0]);
+      if (!isNaN(h)) {
+        const idx = (h - 7 + 24) % 24;
+        hours[idx].pnl += t.pnl;
+        hours[idx].totalPips += t.pips;
+        hours[idx].count += 1;
+        const r = tradeResult(t, winThreshold, lossThreshold);
+        if (r === "win") { hours[idx].wins++; hours[idx].winPips += t.pips; }
+        else if (r === "loss") { hours[idx].losses++; hours[idx].lossPips += t.pips; }
+        else hours[idx].draws++;
+      }
+    });
+    return hours.map(h => {
+      const decided = h.wins + h.losses;
+      return {
+        ...h,
+        label: `${String(h.hour).padStart(2, "0")}h`,
+        winRate: decided ? (h.wins / decided * 100).toFixed(0) : null,
+        avgPips: h.count ? (h.totalPips / h.count).toFixed(1) : null,
+        avgWinPips: h.wins ? (h.winPips / h.wins).toFixed(2) : null,
+        avgLossPips: h.losses ? (h.lossPips / h.losses).toFixed(2) : null,
+      };
+    });
+  }, [trades, monthKey]);
+
+  const tableData = data.filter(h => h.count > 0);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 8, fontSize: 15, color: "#555" }}>時間帯別 累計損益</div>
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <XAxis dataKey="label" tick={{ fill: "#555", fontSize: 15 }} interval={1} />
+          <YAxis tickFormatter={v => (v / 1000).toFixed(0) + "K"} tick={{ fill: "#555", fontSize: 14 }} width={38} />
+          <Tooltip
+            content={({ active, payload, label }) => {
+              if (!active || !payload || !payload.length) return null;
+              return (
+                <div style={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, padding: "8px 12px", fontSize: 14 }}>
+                  <div style={{ color: "#aaa", marginBottom: 4 }}>{label}</div>
+                  <div style={{ color: pnlColor(payload[0].value, T), fontWeight: 700 }}>{fmt(payload[0].value)}</div>
+                </div>
+              );
+            }}
+          />
+          <Bar dataKey="pnl" radius={[3, 3, 0, 0]}>
+            {data.map((entry, i) => (
+              <Cell key={i} fill={entry.pnl >= 0 ? "#00e5a0" : "#ff4d6d"} fillOpacity={0.85} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+
+      {/* Table */}
+      {tableData.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr 1fr", gap: 0, marginBottom: 4 }}>
+            {["時間帯", "損益(pips)", "勝率", "勝/負/分", "勝均pips", "負均pips", "損益(円)"].map(h => (
+              <div key={h} style={{ fontSize: 13, color: T.textMuted, padding: "6px 10px", textAlign: ["損益(pips)","勝率","勝/負/分","勝均pips","負均pips","損益(円)"].includes(h) ? "right" : "left", borderBottom: `1px solid ${T.border}` }}>{h}</div>
+            ))}
+          </div>
+          {(() => {
+            const top3 = [...tableData]
+              .sort((a, b) => b.totalPips - a.totalPips)
+              .slice(0, 3)
+              .map(h => h.label);
+            const rank = (label) => top3.indexOf(label); // 0=1位, 1=2位, 2=3位, -1=圏外
+            const medals = ["🥇", "🥈", "🥉"];
+            return tableData.map(h => {
+              const r = rank(h.label);
+              const isTop = r >= 0;
+              return (
+                <div key={h.label} style={{
+                  display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr 1fr", gap: 0,
+                  borderBottom: "1px solid rgba(255,255,255,0.04)",
+                  background: isTop ? `rgba(0,229,160,${0.10 - r * 0.025})` : "transparent",
+                  borderLeft: isTop ? `3px solid rgba(0,229,160,${0.8 - r * 0.2})` : "3px solid transparent",
+                }}>
+                  <div style={{ padding: "8px 10px", fontSize: 14, fontWeight: isTop ? 700 : 400, color: isTop ? T.positive : T.textSub }}>
+                    {isTop && <span style={{ marginRight: 4 }}>{medals[r]}</span>}{h.label}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, fontWeight: 700, textAlign: "right", color: pnlColor(h.totalPips, T) }}>
+                    {h.count > 0 ? (h.totalPips >= 0 ? "+" : "") + h.totalPips.toFixed(1) : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, textAlign: "right", color: h.winRate >= 50 ? T.positive : T.negative }}>
+                    {h.winRate !== null ? h.winRate + "%" : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 13, textAlign: "right", color: T.textSub }}>
+                    {h.count > 0 ? `${h.wins}/${h.losses}/${h.draws}` : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, textAlign: "right", color: T.positive }}>
+                    {h.avgWinPips !== null ? "+" + h.avgWinPips : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, textAlign: "right", color: T.negative }}>
+                    {h.avgLossPips !== null ? h.avgLossPips : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, fontWeight: 700, textAlign: "right", color: pnlColor(h.pnl, T) }}>{h.count > 0 ? fmt(h.pnl) : "—"}</div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Pair Analysis ──────────────────────────────────────────────────────────
+function PairAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+  const data = useMemo(() => {
+    const filtered = monthKey ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey)) : trades;
+    const map = {};
+    filtered.forEach(t => {
+      const p = t.pair || "UNKNOWN";
+      if (!map[p]) map[p] = { pair: p, pnl: 0, count: 0, wins: 0, losses: 0, draws: 0 };
+      map[p].pnl += t.pnl;
+      map[p].count += 1;
+      const r = tradeResult(t, winThreshold, lossThreshold);
+      if (r === "win") map[p].wins += 1;
+      else if (r === "loss") map[p].losses += 1;
+      else map[p].draws += 1;
+    });
+    return Object.values(map).sort((a, b) => b.pnl - a.pnl);
+  }, [trades, monthKey, winThreshold, lossThreshold]);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "56px 1fr 56px 1.2fr" }}>
+      {/* Header */}
+      {["ペア", "損益(円)", "取引数", "勝率 (勝/負/分)"].map((h, i) => (
+        <div key={h} style={{ fontSize: 12, color: T.textMuted, padding: "6px 8px 8px",
+          textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
+      ))}
+      {/* Rows */}
+      {data.map(d => {
+        const decided = d.wins + d.losses;
+        const wr = decided > 0 ? (d.wins / decided * 100).toFixed(1) : "—";
+        return [
+          <div key={d.pair+"p"} style={{ padding: "10px 8px", fontSize: 14, fontWeight: 700, color: T.text, borderBottom: `1px solid ${T.border}` }}>{d.pair}</div>,
+          <div key={d.pair+"pnl"} style={{ padding: "10px 8px", fontSize: 14, fontWeight: 700, textAlign: "right", color: pnlColor(d.pnl, T), borderBottom: `1px solid ${T.border}` }}>{fmt(d.pnl)}</div>,
+          <div key={d.pair+"c"} style={{ padding: "10px 8px", fontSize: 14, textAlign: "right", color: T.textSub, borderBottom: `1px solid ${T.border}` }}>{d.count}</div>,
+          <div key={d.pair+"w"} style={{ padding: "10px 8px", fontSize: 13, textAlign: "right", color: T.textSub, borderBottom: `1px solid ${T.border}` }}>
+            {wr !== "—" ? wr + "%" : "—"}<span style={{ color: T.textFaint, marginLeft: 4 }}>({d.wins}/{d.losses}/{d.draws})</span>
+          </div>,
+        ];
+      })}
+    </div>
+  );
+}
+
+// ── Trade List ─────────────────────────────────────────────────────────────
+function TradeList({ trades, monthKey, listFilter, setListFilter, winThreshold = 0.0, lossThreshold = 0.0, violThreshold = -6.0 }) {
+  const T = useTheme();
+  const filterDate = listFilter?.date || "";
+  const filterViolation = listFilter?.violationOnly || false;
+
+  const monthFiltered = monthKey
+    ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+    : [...trades];
+  const violDates = new Set(Object.keys(calcViolations(monthFiltered)));
+  let recent = [...monthFiltered].sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  if (filterDate) recent = recent.filter(t => getTradingDate(t.date, t.time) === filterDate);
+  if (filterViolation) recent = recent.filter(t => t.pips <= violThreshold);
+  return (
+    <div>
+      {/* Filter Bar */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+        <input
+          type="date"
+          value={filterDate}
+          onChange={e => setListFilter({ date: e.target.value || null, violationOnly: filterViolation })}
+          style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+            color: T.text, borderRadius: 6, padding: "6px 10px", fontSize: 13, cursor: "pointer" }}
+        />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: T.textSub }}>
+          <input type="checkbox" checked={filterViolation}
+            onChange={e => setListFilter({ date: filterDate || null, violationOnly: e.target.checked })}
+            style={{ accentColor: T.negative, width: 14, height: 14 }} />
+          ルール違反のみ
+        </label>
+        {(filterDate || filterViolation) && (
+          <button onClick={() => setListFilter({ date: null, violationOnly: false })}
+            style={{ background: T.surface, border: `1px solid ${T.border}`,
+              color: T.textSub, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>
+            絞り込み解除
+          </button>
+        )}
+        <span style={{ fontSize: 12, color: T.textFaint, marginLeft: "auto" }}>{recent.length}件</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+            {["日付", "時刻", "ペア", "方向", "Lots", "損益", "Pips", "判定", "保有時間", ""].map(h => (
+              <th key={h} style={{ padding: "8px 10px", textAlign: ["Lots","損益","Pips","保有時間"].includes(h) ? "right" : h === "" ? "center" : "left", color: T.textMuted, fontWeight: 500, fontSize: 15 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {recent.map(t => (
+            <tr key={t.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+              <td style={{ padding: "7px 10px", color: T.text }}>{t.date}</td>
+              <td style={{ padding: "7px 10px", color: T.textSub }}>{t.time}</td>
+              <td style={{ padding: "7px 10px", color: T.text, fontWeight: 600 }}>{t.pair}</td>
+              <td style={{ padding: "7px 10px" }}>
+                <span style={{
+                  padding: "2px 7px", borderRadius: 4, fontSize: 14, fontWeight: 700,
+                  background: t.direction === "BUY" ? "rgba(0,229,160,0.15)" : "rgba(255,77,109,0.15)",
+                  color: t.direction === "BUY" ? T.positive : T.negative,
+                }}>{t.direction}</span>
+              </td>
+              <td style={{ padding: "7px 10px", color: T.textSub, textAlign: "right" }}>{t.lots}</td>
+              <td style={{ padding: "7px 10px", fontWeight: 700, textAlign: "right", color: pnlColor(t.pnl, T) }}>{fmt(t.pnl)}</td>
+              <td style={{ padding: "7px 10px", textAlign: "right", color: pnlColor(t.pips, T) }}>{fmtPips(t.pips)}</td>
+              <td style={{ padding: "7px 10px" }}>
+                {(() => { const r = tradeResult(t, winThreshold, lossThreshold); return (
+                  <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 14, fontWeight: 700,
+                    background: r === "win" ? "rgba(0,229,160,0.15)" : r === "loss" ? "rgba(255,77,109,0.15)" : "rgba(136,136,136,0.15)",
+                    color: resultColor(r, T) }}>
+                    {r === "win" ? "勝" : r === "loss" ? "負" : "分"}
+                  </span>
+                ); })()}
+              </td>
+              <td style={{ padding: "7px 10px", color: T.textMuted, fontSize: 13, textAlign: "right" }}>
+                {t.holdMin != null ? (() => {
+                  const totalSec = Math.round(t.holdMin * 60);
+                  const h = Math.floor(totalSec / 3600);
+                  const m = Math.floor((totalSec % 3600) / 60);
+                  const s = totalSec % 60;
+                  if (h > 0) return `${h}h${m}m${s}s`;
+                  if (m > 0) return `${m}m${s}s`;
+                  return `${s}s`;
+                })() : "—"}
+              </td>
+              <td style={{ padding: "7px 6px", fontSize: 16, textAlign: "center" }}>
+                {t.pips <= violThreshold ? (
+                  <WithTooltip tip={`ルール違反（${violThreshold}pips以下）`}>
+                    <span style={{ cursor: "default" }}>⚠️</span>
+                  </WithTooltip>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Nav Button Style ───────────────────────────────────────────────────────
+const navBtn = {
+  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+  color: "#aaa", borderRadius: 8, width: 36, height: 36, cursor: "pointer",
+  fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center",
+};
+
+// ── Section Wrapper ────────────────────────────────────────────────────────
+function Section({ title, children }) {
+  const T = useTheme();
+  return (
+    <div style={{
+      background: T.sectionBg || T.surface || "rgba(255,255,255,0.04)",
+      border: `1px solid ${T.sectionBorder || "rgba(255,255,255,0.06)"}`,
+      borderRadius: 14, padding: 24, marginBottom: 20,
+      boxShadow: T.theme === "cyber" ? "0 0 30px rgba(60,130,255,0.05), inset 0 1px 0 rgba(60,130,255,0.08)" : "none",
+    }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: T.textMuted || "#555", letterSpacing: 2, marginBottom: 18, textTransform: "uppercase" }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+// ── CSV Template ───────────────────────────────────────────────────────────
+const CSV_TEMPLATE = `date,time,pair,direction,lots,entryPrice,exitPrice,pnl,pips
+2025-06-01,09:30,USD/JPY,BUY,0.5,152.340,152.680,17000,3.4
+2025-06-01,14:15,EUR/USD,SELL,1.0,1.08920,1.08750,17000,1.7
+2025-06-02,10:00,GBP/USD,BUY,0.3,1.27100,1.26900,-6000,-2.0
+`;
+
+// ── Storage helpers ────────────────────────────────────────────────────────
+const STORAGE_KEY = "fxjournal_trades_v1";
+
+function loadFromStorage() {
+  try {
+    const raw = window.storage ? null : null; // use artifact storage below
+    return null;
+  } catch { return null; }
+}
+
+// Deduplicate key: orderId (broker) or date+time+pair+pnl combo
+function tradeKey(t) {
+  // If the original broker order id is preserved as t.id from broker rows, use it
+  // otherwise use a composite key
+  return t.orderId
+    ? String(t.orderId)
+    : `${t.date}_${t.time}_${t.pair}_${t.direction}_${t.pnl}`;
+}
+
+function mergeAndDedupe(existing, incoming) {
+  const map = new Map();
+  existing.forEach(t => map.set(tradeKey(t), t));
+  let added = 0;
+  incoming.forEach(t => {
+    const k = tradeKey(t);
+    if (!map.has(k)) { map.set(k, t); added++; }
+  });
+  const merged = Array.from(map.values()).sort((a, b) =>
+    new Date(b.date + "T" + b.time) - new Date(a.date + "T" + a.time)
+  );
+  return { merged, added, total: merged.length, dupes: incoming.length - added };
+}
+
+
+// ── FxMate Icon ────────────────────────────────────────────────────────────
+function FxMateIcon({ size = 40, theme = "dark" }) {
+  const isCyber = theme === "cyber";
+  const isLight = theme === "light";
+  const bg = isLight ? "#e8f5f2" : isCyber ? "#0d1a35" : "#0d1f1e";
+  const border = isLight ? "#5DCAA5" : isCyber ? "#3c82ff" : "#1D9E75";
+  const teal = isLight ? "#1D9E75" : "#00d4c8";
+  const pink = "#ff4d7a";
+  const s = size;
+  const r = s * 0.22;
+  const dotR = s * 0.09;
+  return (
+    <svg width={s} height={s} viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="38" height="38" rx="9" fill={bg} stroke={border} strokeWidth="1.5"/>
+      <rect x="1" y="1" width="38" height="10" rx="9" fill={border} opacity="0.4"/>
+      <rect x="1" y="7" width="38" height="4" fill={border} opacity="0.4"/>
+      {/* 6 dots: 3x2 grid */}
+      <circle cx="13" cy="20" r="4" fill={teal}/>
+      <circle cx="20" cy="20" r="4" fill={teal}/>
+      <circle cx="27" cy="20" r="4" fill={pink}/>
+      <circle cx="13" cy="29" r="4" fill={teal}/>
+      <circle cx="20" cy="29" r="4" fill={pink}/>
+      <circle cx="27" cy="29" r="4" fill={teal}/>
+    </svg>
+  );
+}
+
+// ── Export Panel ───────────────────────────────────────────────────────────
+function ExportPanel({ trades, T }) {
+  const [showCsv, setShowCsv] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const csv = useMemo(() => {
+    if (!trades.length) return "";
+    const header = "date,time,pair,direction,lots,entryPrice,exitPrice,pnl,pips";
+    const rows = trades.map(t =>
+      [t.date, t.time, t.pair, t.direction, t.lots, t.entryPrice, t.exitPrice, t.pnl, t.pips].join(",")
+    );
+    return [header, ...rows].join("\n");
+  }, [trades]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(csv).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  if (!trades.length) return <div style={{ color: T.textFaint, fontSize: 13 }}>データがありません</div>;
+
+  return (
+    <div>
+      <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>データエクスポート</div>
+      <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 12 }}>
+        CSVをコピーして、テキストエディタで .csv ファイルとして保存してください。スタンドアロン版のCSV読込でそのまま取り込めます。
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: showCsv ? 10 : 0 }}>
+        <button onClick={() => setShowCsv(v => !v)} style={{
+          background: T.surface, border: `1px solid ${T.border}`,
+          color: T.textSub, borderRadius: 8, padding: "8px 16px",
+          cursor: "pointer", fontSize: 13,
+        }}>{showCsv ? "▲ 閉じる" : "▼ CSVを表示"} ({trades.length}件)</button>
+        {showCsv && (
+          <button onClick={handleCopy} style={{
+            background: copied ? "rgba(0,229,160,0.15)" : "rgba(100,160,255,0.1)",
+            border: copied ? "1px solid rgba(0,229,160,0.4)" : "1px solid rgba(100,160,255,0.3)",
+            color: copied ? T.positive : "#6fa0ff",
+            borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600,
+          }}>{copied ? "✓ コピー済み" : "📋 全てコピー"}</button>
+        )}
+      </div>
+      {showCsv && (
+        <textarea readOnly value={csv}
+          style={{ width: "100%", height: 160, background: T.inputBg,
+            border: `1px solid ${T.border}`, color: T.text,
+            borderRadius: 8, padding: 10, fontSize: 11, fontFamily: "monospace",
+            resize: "vertical" }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+// ── Main App ───────────────────────────────────────────────────────────────
+function App() {
+  const [trades, setTrades] = useState([]);
+  const [activeTab, setActiveTab] = useState("calendar");
+  const [settings, setSettings] = useState({});
+  const theme = settings.theme ?? "dark";
+  const isDark = theme === "dark" || theme === "cyber";
+  const violThreshold  = isNaN(settings.violThreshold)  ? -6.0 : (settings.violThreshold  ?? -6.0);
+  const winThreshold   = isNaN(settings.winThreshold)   ? 0.0  : (settings.winThreshold   ?? 0.0);
+  const lossThreshold  = isNaN(settings.lossThreshold)  ? 0.0  : (settings.lossThreshold  ?? 0.0);
+  const calendarUnit   = settings.calendarUnit  ?? "pnl"; // "pnl" or "pips"
+
+  const saveSettings = async (newSettings) => {
+    setSettings(newSettings);
+    try { await window.storage.set("fxjournal_settings_v1", JSON.stringify(newSettings)); } catch {}
+  };
+  const [listFilter, setListFilter] = useState({ date: null, violationOnly: false });
+  const [dragging, setDragging] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [importMsg, setImportMsg] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [exportCsv, setExportCsv] = useState(null);
+
+  // Load from persistent storage on mount
+  const loadTrades = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // Load settings
+      const sResult = await window.storage.get("fxjournal_settings_v1");
+      if (sResult && sResult.value) {
+        const s = JSON.parse(sResult.value);
+        if (s && typeof s === "object") setSettings(s);
+      }
+    } catch {}
+    try {
+      const result = await window.storage.get(STORAGE_KEY);
+      if (result && result.value) {
+        const saved = JSON.parse(result.value);
+        if (Array.isArray(saved) && saved.length > 0 && saved[0].date) {
+          setTrades(saved);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (e) { /* no saved data */ }
+    setTrades([]);
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => { loadTrades(); }, []);
+
+  // Save to storage
+  const saveTrades = useCallback(async (data) => {
+    try {
+      await window.storage.set(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) { console.error("保存失敗:", e); }
+  }, []);
+
+  const handleFile = useCallback((file) => {
+    if (!file) return;
+    const tryParse = async (text) => {
+      const parsed = parseCSV(text);
+      if (!parsed.length) {
+        alert("CSVの解析に失敗しました。\n対応: 証券会社の取引履歴CSV（Shift-JIS/UTF-8）");
+        return;
+      }
+      // Load current saved trades (not sample data)
+      let existing = [];
+      try {
+        const result = await window.storage.get(STORAGE_KEY);
+        if (result && result.value) {
+          const saved = JSON.parse(result.value);
+          if (Array.isArray(saved)) existing = saved;
+        }
+      } catch {}
+
+      const { merged, added, total, dupes } = mergeAndDedupe(existing, parsed);
+      setTrades(merged);
+      await saveTrades(merged);
+      setImportMsg({ added, dupes, total });
+      setTimeout(() => setImportMsg(null), 4000);
+    };
+    const reader = new FileReader();
+    reader.onload = (e) => tryParse(e.target.result);
+    reader.readAsText(file, "Shift-JIS");
+  }, [saveTrades]);
+
+  const handleExport = useCallback(() => {
+    if (!trades.length) return;
+    const header = "date,time,pair,direction,lots,entryPrice,exitPrice,pnl,pips";
+    const rows = trades.map(t =>
+      [t.date, t.time, t.pair, t.direction, t.lots, t.entryPrice, t.exitPrice, t.pnl, t.pips].join(",")
+    );
+    const csv = [header, ...rows].join("\n");
+    // テキストエリアにコピーして表示
+    setExportCsv(csv);
+  }, [trades]);
+
+  const handleClearData = useCallback(() => {
+    setShowConfirm(true);
+  }, []);
+
+  const doDelete = useCallback(async () => {
+    setShowConfirm(false);
+    try {
+      // List all keys first
+      const listed = await window.storage.list();
+      const allKeys = listed?.keys || [];
+      // Delete each key
+      for (const k of allKeys) {
+        try { await window.storage.delete(k); } catch(e) {}
+      }
+      // Also explicitly delete our key
+      try { await window.storage.delete(STORAGE_KEY); } catch(e) {}
+      try { await window.storage.delete("fxjournal_settings_v1"); } catch(e) {}
+    } catch (e) {}
+    setTrades([]);
+    setSettings({});
+    setImportMsg(null);
+  }, []);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  }, [handleFile]);
+
+  const downloadTemplate = () => {
+    const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "trade_template.csv";
+    a.click();
+  };
+
+  const hasSavedData = trades.length > 0;
+
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  const tabs = [
+    { id: "calendar",   icon: "📅", label: "カレンダー" },
+    { id: "equity",     icon: "📈", label: "損益曲線" },
+    { id: "hourly",     icon: "🕐", label: "時間帯" },
+    { id: "violations", icon: "⚠️", label: "ルール違反" },
+    { id: "pair",       icon: "💱", label: "通貨ペア" },
+    { id: "list",       icon: "📋", label: "履歴" },
+    { id: "settings",   icon: "⚙️", label: "設定" },
+  ];
+
+  const THEMES = {
+    dark: {
+      bg: "#0d0d1a",
+      surface: "rgba(255,255,255,0.04)",
+      border: "rgba(255,255,255,0.08)",
+      borderStrong: "rgba(255,255,255,0.15)",
+      text: "#e8e0d5",
+      textSub: "#aaa",
+      textMuted: "#777",
+      textFaint: "#555",
+      tabActive: "rgba(0,229,160,0.15)",
+      tabActiveBorder: "rgba(0,229,160,0.4)",
+      tabActiveText: "#00e5a0",
+      tabInactive: "rgba(255,255,255,0.04)",
+      tabInactiveBorder: "rgba(255,255,255,0.07)",
+      tabInactiveText: "#777",
+      inputBg: "rgba(255,255,255,0.06)",
+      inputBorder: "rgba(255,255,255,0.12)",
+      sectionBg: "rgba(255,255,255,0.02)",
+      sectionBorder: "rgba(255,255,255,0.06)",
+      positive: "#00e5a0",
+      negative: "#ff4d6d",
+      tooltipBg: "#1a1a2e",
+      tooltipBorder: "rgba(255,255,255,0.15)",
+      chartGrid: "rgba(255,255,255,0.05)",
+      chartTick: "#555",
+      navBtn: { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#aaa" },
+    },
+    light: {
+      bg: "#f4f6f9",
+      surface: "rgba(0,0,0,0.03)",
+      border: "rgba(0,0,0,0.09)",
+      borderStrong: "rgba(0,0,0,0.2)",
+      text: "#1a1a2e",
+      textSub: "#444",
+      textMuted: "#666",
+      textFaint: "#999",
+      tabActive: "rgba(0,130,90,0.1)",
+      tabActiveBorder: "rgba(0,130,90,0.45)",
+      tabActiveText: "#00825a",
+      tabInactive: "rgba(0,0,0,0.03)",
+      tabInactiveBorder: "rgba(0,0,0,0.08)",
+      tabInactiveText: "#888",
+      inputBg: "rgba(0,0,0,0.04)",
+      inputBorder: "rgba(0,0,0,0.15)",
+      sectionBg: "rgba(0,0,0,0.02)",
+      sectionBorder: "rgba(0,0,0,0.07)",
+      positive: "#006644",
+      negative: "#d93025",
+      tooltipBg: "#ffffff",
+      tooltipBorder: "rgba(0,0,0,0.12)",
+      chartGrid: "rgba(0,0,0,0.06)",
+      chartTick: "#999",
+      navBtn: { background: "rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.12)", color: "#666" },
+    },
+    cyber: {
+      // ミッドナイトディープブルー × フューチャーブルー × サイバー・ミント / オフホワイト文字
+      bg: "#090e1a",
+      surface: "rgba(30,60,120,0.18)",
+      border: "rgba(60,130,255,0.15)",
+      borderStrong: "rgba(60,130,255,0.35)",
+      text: "#e8eef8",
+      textSub: "#8aaad8",
+      textMuted: "#5577aa",
+      textFaint: "#3a5580",
+      tabActive: "rgba(0,210,200,0.15)",
+      tabActiveBorder: "rgba(0,210,200,0.5)",
+      tabActiveText: "#00d4c8",
+      tabInactive: "rgba(30,60,120,0.15)",
+      tabInactiveBorder: "rgba(60,130,255,0.12)",
+      tabInactiveText: "#5577aa",
+      inputBg: "rgba(30,60,120,0.25)",
+      inputBorder: "rgba(60,130,255,0.25)",
+      sectionBg: "rgba(15,30,70,0.6)",
+      sectionBorder: "rgba(60,130,255,0.12)",
+      positive: "#00d4c8",
+      negative: "#ff4d7a",
+      tooltipBg: "#0d1a35",
+      tooltipBorder: "rgba(60,130,255,0.3)",
+      chartGrid: "rgba(60,130,255,0.07)",
+      chartTick: "#3a5580",
+      navBtn: { background: "rgba(30,60,120,0.3)", border: "1px solid rgba(60,130,255,0.2)", color: "#8aaad8" },
+    },
+  };
+  const T = THEMES[theme] || THEMES.dark;
+
+  return (
+    <ThemeContext.Provider value={{...T, theme}}>
+    <div style={{
+      minHeight: "100vh",
+      background: theme === "cyber"
+        ? "linear-gradient(160deg, #060c18 0%, #090e1a 40%, #071020 100%)"
+        : T.bg,
+      color: T.text,
+      fontFamily: "'DM Mono', 'Courier New', monospace",
+      fontSize: 15,
+      padding: "0 0 60px 0",
+      transition: "background 0.3s, color 0.3s",
+    }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet" />
+
+      {/* Top Bar */}
+      <div style={{
+        background: T.sectionBg,
+        borderBottom: `1px solid ${T.border}`,
+        padding: "16px 24px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        position: "sticky", top: 0, zIndex: 100, backdropFilter: "blur(12px)",
+      }}>
+        <div style={{ minWidth: 0, flex: 1, marginRight: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <FxMateIcon size={32} theme={theme} />
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: -0.5, lineHeight: 1 }}>
+                <span style={{ color: T.positive, textShadow: theme === "cyber" ? `0 0 20px ${T.positive}88` : "none" }}>FX</span>
+                <span style={{ color: T.text }}>MATE</span>
+              </div>
+              <div style={{ fontSize: 11, color: T.textFaint, letterSpacing: 1, marginTop: 1 }}>your trade companion</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: T.textFaint, marginTop: 2 }}>
+            {isLoading ? "読み込み中..." : trades.length === 0 ? "CSVを読み込んでください" : `${trades.length}件のトレードを記録中`}
+          </div>
+        </div>
+
+        {/* Upload */}
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button onClick={handleClearData} style={{
+            background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
+            color: "#ff4d6d", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15,
+            whiteSpace: "nowrap", flexShrink: 0,
+          }}>データ削除</button>
+
+          <label style={{
+            background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
+            color: "#00e5a0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700,
+            whiteSpace: "nowrap", flexShrink: 0, display: "inline-block",
+          }}>
+            CSV読込
+            <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+          </label>
+        </div>
+      </div>
+
+      {/* Import Result Toast */}
+      {importMsg && (
+        <div style={{
+          position: "fixed", bottom: 24, right: 24, zIndex: 300,
+          background: "#1a2a1a", border: "1px solid rgba(0,229,160,0.4)",
+          borderRadius: 10, padding: "14px 20px", fontSize: 15,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+          animation: "fadeIn 0.3s ease",
+        }}>
+          <div style={{ color: "#00e5a0", fontWeight: 700, marginBottom: 4 }}>✓ インポート完了</div>
+          <div style={{ color: "#aaa" }}>新規追加: <span style={{ color: "#e8e0d5" }}>{importMsg.added}件</span></div>
+          <div style={{ color: "#aaa" }}>重複スキップ: <span style={{ color: "#666" }}>{importMsg.dupes}件</span></div>
+          <div style={{ color: "#aaa" }}>累計保存: <span style={{ color: "#e8e0d5" }}>{importMsg.total}件</span></div>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {showConfirm && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 400,
+          background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "#13131f", border: "1px solid rgba(255,77,109,0.3)",
+            borderRadius: 14, padding: 28, width: 300, textAlign: "center",
+          }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#e8e0d5", marginBottom: 8 }}>データを削除しますか？</div>
+            <div style={{ fontSize: 14, color: "#666", marginBottom: 24 }}>保存されたトレードデータがすべて消えます。</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button onClick={() => setShowConfirm(false)} style={{
+                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                color: "#888", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 15,
+              }}>キャンセル</button>
+              <button onClick={doDelete} style={{
+                background: "rgba(255,77,109,0.15)", border: "1px solid rgba(255,77,109,0.4)",
+                color: "#ff4d6d", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 15, fontWeight: 700,
+              }}>削除する</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Modal */}
+      {exportCsv && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 400,
+          background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16,
+        }}>
+          <div style={{
+            background: T.sectionBg || "#13131f", border: `1px solid ${T.border}`,
+            borderRadius: 14, padding: 24, width: "100%", maxWidth: 560,
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 8 }}>CSVエクスポート</div>
+            <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 12 }}>
+              以下のテキストをすべて選択してコピーし、テキストエディタに貼り付けて .csv として保存してください。
+            </div>
+            <textarea
+              readOnly
+              value={exportCsv}
+              onClick={e => e.target.select()}
+              style={{
+                width: "100%", height: 200, background: T.inputBg,
+                border: `1px solid ${T.border}`, borderRadius: 8,
+                color: T.text, fontSize: 12, padding: 10,
+                fontFamily: "monospace", resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
+              <button onClick={() => {
+                navigator.clipboard?.writeText(exportCsv).catch(() => {});
+              }} style={{
+                background: "rgba(100,160,255,0.15)", border: "1px solid rgba(100,160,255,0.3)",
+                color: "#6fa0ff", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 14, fontWeight: 600,
+              }}>クリップボードにコピー</button>
+              <button onClick={() => setExportCsv(null)} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                color: T.textSub, borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 14,
+              }}>閉じる</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drop Zone Overlay */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        style={{
+          position: "fixed", inset: 0, zIndex: dragging ? 200 : -1,
+          background: "rgba(0,229,160,0.08)", border: "2px dashed #00e5a0",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          opacity: dragging ? 1 : 0, transition: "opacity 0.2s",
+          pointerEvents: dragging ? "all" : "none",
+        }}>
+        <div style={{ fontSize: 24, color: "#00e5a0", fontWeight: 700 }}>CSVをドロップ</div>
+      </div>
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 16px" }}>
+
+        {/* Empty State */}
+        {!isLoading && trades.length === 0 && (
+          <div style={{
+            textAlign: "center", padding: "80px 20px",
+            border: "2px dashed rgba(255,255,255,0.08)", borderRadius: 16, marginBottom: 24,
+          }}>
+            <div style={{ fontSize: 40, marginBottom: 16 }}>📂</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#e8e0d5", marginBottom: 8 }}>
+              トレードデータがありません
+            </div>
+            <div style={{ fontSize: 15, color: "#555", marginBottom: 24 }}>
+              証券会社からダウンロードしたCSVを読み込んでください
+            </div>
+            <label style={{
+              background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
+              color: "#00e5a0", borderRadius: 8, padding: "10px 24px",
+              cursor: "pointer", fontSize: 15, fontWeight: 700,
+            }}>
+              CSVを読み込む
+              <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+            </label>
+          </div>
+        )}
+
+        {/* Quick Stats */}
+        <Section title="サマリー">
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+            <button onClick={() => {
+              const [y, m] = selectedMonth.split("-").map(Number);
+              const d = new Date(y, m - 2, 1);
+              setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+            }} style={{...navBtn, ...T.navBtn}}>‹</button>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, minWidth: 100, textAlign: "center" }}>
+              {selectedMonth.replace("-", "年")}月
+            </div>
+            <button onClick={() => {
+              const [y, m] = selectedMonth.split("-").map(Number);
+              const d = new Date(y, m, 1);
+              setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+            }} style={{...navBtn, ...T.navBtn}}>›</button>
+          </div>
+          <StatsCards trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+        </Section>
+
+        {trades.length > 0 && <>
+        {/* Tab Nav */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 20, overflowX: "auto", paddingBottom: 4 }}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              background: activeTab === t.id ? T.tabActive : T.tabInactive,
+              border: activeTab === t.id ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.tabInactiveBorder}`,
+              color: activeTab === t.id ? T.tabActiveText : T.tabInactiveText,
+              boxShadow: activeTab === t.id && theme === "cyber" ? `0 0 12px ${T.tabActiveText}44` : "none",
+              borderRadius: 8, padding: "8px 14px", cursor: "pointer",
+              whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace",
+              fontWeight: activeTab === t.id ? 700 : 400,
+              transition: "all 0.15s",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+              minWidth: 52,
+            }}>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>{t.icon}</span>
+              <span style={{ fontSize: 10 }}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === "calendar" && (
+          <Section title="損益カレンダー">
+            <CalendarView trades={trades} onMonthChange={setSelectedMonth} calendarUnit={calendarUnit} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} selectedMonth={selectedMonth} />
+          </Section>
+        )}
+
+        {activeTab === "violations" && (
+          <Section title="ルール違反（日単位）">
+            <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 16 }}>
+              {selectedMonth.replace("-", "年")}月
+            </div>
+            <ViolationTable trades={trades} monthKey={selectedMonth} violThreshold={violThreshold} onDrillDown={(date) => {
+              setListFilter({ date, violationOnly: true });
+              setActiveTab("list");
+            }} />
+          </Section>
+        )}
+        {activeTab === "equity" && (
+          <Section title="損益曲線">
+            <EquityCurve trades={trades} monthKey={selectedMonth} />
+          </Section>
+        )}
+        {activeTab === "hourly" && (
+          <Section title="時間帯別分析">
+            <HourlyAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          </Section>
+        )}
+        {activeTab === "pair" && (
+          <Section title="通貨ペア別パフォーマンス">
+            <PairAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          </Section>
+        )}
+        {activeTab === "list" && (
+          <Section title="トレード履歴">
+            <TradeList trades={trades} monthKey={selectedMonth} listFilter={listFilter} setListFilter={setListFilter} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} />
+          </Section>
+        )}
+        {activeTab === "settings" && (
+          <Section title="設定">
+            <div style={{ display: "flex", flexDirection: "column", gap: 28, maxWidth: 420 }}>
+
+              {/* ルール違反閾値 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>ルール違反の閾値（pips）</div>
+                <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 10 }}>この値以下の損切りをルール違反と判定します</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <input type="number" step="0.5" value={violThreshold}
+                    onChange={e => saveSettings({ ...settings, violThreshold: parseFloat(e.target.value) })}
+                    style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                      color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
+                  <span style={{ color: T.textFaint, fontSize: 14 }}>pips</span>
+                  <button onClick={() => saveSettings({ ...settings, violThreshold: -6.0 })}
+                    style={{ background: T.surface, border: `1px solid ${T.border}`,
+                      color: T.textMuted, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>リセット</button>
+                </div>
+              </div>
+
+              {/* 勝ち負け判定閾値 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 12 }}>勝ち負け判定の閾値（pips）</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 13, color: "#00e5a0", width: 32 }}>勝ち</span>
+                    <input type="number" step="0.1" min="0" value={winThreshold}
+                      onChange={e => saveSettings({ ...settings, winThreshold: parseFloat(e.target.value) })}
+                      style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                        color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
+                    <span style={{ color: "#555", fontSize: 14 }}>pips 以上</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 13, color: "#ff4d6d", width: 32 }}>負け</span>
+                    <input type="number" step="0.1" min="0" value={lossThreshold}
+                      onChange={e => saveSettings({ ...settings, lossThreshold: parseFloat(e.target.value) })}
+                      style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                        color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
+                    <span style={{ color: "#555", fontSize: 14 }}>pips 以上</span>
+                  </div>
+                  <div>
+                    <button onClick={() => saveSettings({ ...settings, winThreshold: 0.0, lossThreshold: 0.0 })}
+                      style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                        color: "#666", borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>リセット</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* テーマ */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>テーマ</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  {[["dark", "🌙 ダーク"], ["light", "☀️ ライト"], ["cyber", "⚡ サイバー"]].map(([val, label]) => (
+                    <button key={val} onClick={() => saveSettings({ ...settings, theme: val })}
+                      style={{ padding: "8px 20px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600,
+                        border: theme === val ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.border}`,
+                        background: theme === val ? T.tabActive : T.surface,
+                        color: theme === val ? T.tabActiveText : T.textMuted }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* データエクスポート */}
+              <ExportPanel trades={trades} T={T} />
+
+              {/* カレンダー表示単位 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>カレンダーの損益表示単位</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  {[["pnl", "円（¥）"], ["pips", "pips"]].map(([val, label]) => (
+                    <button key={val} onClick={() => saveSettings({ ...settings, calendarUnit: val })}
+                      style={{ padding: "8px 20px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600,
+                        border: calendarUnit === val ? "1px solid #00e5a0" : "1px solid rgba(255,255,255,0.1)",
+                        background: calendarUnit === val ? "rgba(0,229,160,0.12)" : "rgba(255,255,255,0.04)",
+                        color: calendarUnit === val ? "#00e5a0" : "#666" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </Section>
+        )}
+        </>}
+      </div>
+    </div>
+    </ThemeContext.Provider>
+  );
+}
+
+
+    
+
+// ── Pair name normalizer ───────────────────────────────────────────────────
+function normalizePair(raw) {
+  if (!raw) return "UNKNOWN";
+  // ドル/円 → USD/JPY style mapping
+  const map = {
+    "ドル/円": "USD/JPY", "ユーロ/円": "EUR/JPY", "ユーロ/ドル": "EUR/USD",
+    "ポンド/円": "GBP/JPY", "ポンド/ドル": "GBP/USD", "豪ドル/円": "AUD/JPY",
+    "豪ドル/ドル": "AUD/USD", "NZドル/円": "NZD/JPY", "NZドル/ドル": "NZD/USD",
+    "カナダドル/円": "CAD/JPY", "スイスフラン/円": "CHF/JPY",
+    "ドル/スイスフラン": "USD/CHF", "ユーロ/ポンド": "EUR/GBP",
+  };
+  for (const [jp, en] of Object.entries(map)) {
+    if (raw.includes(jp.split("/")[0]) && raw.includes(jp.split("/")[1].replace("円","~"))) {
+      return en;
+    }
+  }
+  return map[raw] || raw;
+}
+
+// ── CSV Parser (handles Shift-JIS broker format & generic CSV) ─────────────
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim());
+
+  // Detect broker format by Japanese header keywords
+  const isBrokerFormat =
+    headers.some(h => h.includes("注文番号") || h.includes("新規") || h.includes("売買損益") || h.includes("通貨ペア") || h.includes("ペア"));
+
+  if (isBrokerFormat) {
+    // Column index detection
+    const hi = (kw) => headers.findIndex(h => h.includes(kw));
+    const idxType    = hi("新規");      // 新規/決済
+    const idxPair    = hi("通貨") !== -1 ? hi("通貨") : hi("ペア");
+    const idxDir     = hi("売買");
+    const idxEntry   = hi("約定価格") !== -1 ? hi("約定価格") : hi("新規約定");
+    const idxQty     = hi("注文数量") !== -1 ? hi("注文数量") : hi("数量");
+    const idxDate    = hi("注文日時") !== -1 ? hi("注文日時") : hi("約定日時");
+    const idxExitDate= hi("約定日時") !== -1 ? hi("約定日時") : hi("決済日時");
+    const idxPnl     = hi("売買損益");
+    const idxNewPrice= hi("新規約定価格");
+
+    const idxNewOrderId = hi("新規注文番号");
+    const idxOrderId    = hi("注文番号");
+    const idxOpenDate   = hi("約定日時") !== -1 ? hi("約定日時") : hi("注文日時");
+
+    // 新規行の注文番号→約定日時マップ
+    const openTimeMap = {};
+    lines.slice(1).forEach(line => {
+      const v = line.split(",").map(s => s.trim());
+      if ((v[idxType] || "").includes("新規")) {
+        const oid = idxOrderId >= 0 ? v[idxOrderId] : "";
+        const odt = idxOpenDate >= 0 ? v[idxOpenDate] : "";
+        if (oid && odt) openTimeMap[oid] = odt;
+      }
+    });
+
+    return lines.slice(1).map((line, i) => {
+      const v = line.split(",").map(s => s.trim());
+      const type = v[idxType] || "";
+      if (!type.includes("決済")) return null; // only closed trades
+
+      const dateRaw = (idxExitDate >= 0 ? v[idxExitDate] : v[idxDate]) || "";
+      // "2026/03/05 00:57:38" → date + time
+      const [datePart, timePart] = dateRaw.split(" ");
+      const date = datePart ? datePart.replace(/\//g, "-") : "";
+      const time = timePart ? timePart.substring(0, 5) : "00:00";
+
+      const pairRaw = idxPair >= 0 ? v[idxPair] : "";
+      const pair = normalizePair(pairRaw);
+
+      const dirRaw = idxDir >= 0 ? v[idxDir] : "";
+      // 売=SELL新規 → closed with BUY exit; 買=BUY新規 → closed with SELL exit
+      // The direction stored is the opening direction
+      // dirRaw は決済側の売買 → 新規（オープン）の方向は逆
+      const direction = dirRaw.includes("売") ? "BUY" : dirRaw.includes("買") ? "SELL" : dirRaw;
+
+      const pnl = idxPnl >= 0 ? parseFloat(v[idxPnl]) || 0 : 0;
+      const exitPrice = idxEntry >= 0 ? parseFloat(v[idxEntry]) || 0 : 0;
+      const entryPrice = idxNewPrice >= 0 ? parseFloat(v[idxNewPrice]) || 0 : 0;
+      const qty = idxQty >= 0 ? parseFloat(v[idxQty]) || 0 : 0;
+
+      // pips calculation: price diff * direction factor
+      const priceDiff = exitPrice - entryPrice;
+      const pipFactor = pair.includes("JPY") ? 100 : 10000;
+      const pips = direction === "BUY"
+        ? +(priceDiff * pipFactor).toFixed(1)
+        : +(-priceDiff * pipFactor).toFixed(1);
+
+      // 保有時間計算
+      const newOrderId = idxNewOrderId >= 0 ? v[idxNewOrderId] : "";
+      const openDtRaw = openTimeMap[newOrderId] || "";
+      let holdMin = null;
+      if (openDtRaw && dateRaw) {
+        const tOpen = new Date(openDtRaw.replace(/\//g, "-").replace(" ", "T"));
+        const tClose = new Date(dateRaw.replace(/\//g, "-").replace(" ", "T"));
+        const diff = (tClose - tOpen) / 60000;
+        if (!isNaN(diff) && diff >= 0) holdMin = diff; // 小数付き分数
+      }
+
+      const orderId = idxOrderId >= 0 ? v[idxOrderId] : null;
+      return { id: i + 1, orderId, date, time, pair, direction, lots: qty / 10000 || 1, entryPrice, exitPrice, pnl, pips, holdMin };
+    }).filter(r => r && r.date);
+  }
+
+  // Generic CSV fallback
+  const normH = headers.map(h => h.toLowerCase().replace(/\s+/g, "_"));
+  return lines.slice(1).map((line, i) => {
+    const vals = line.split(",").map(v => v.trim());
+    const obj = { id: i + 1 };
+    normH.forEach((h, idx) => { obj[h] = vals[idx] ?? ""; });
+    if (!obj.pnl && obj.profit_loss) obj.pnl = obj.profit_loss;
+    if (!obj.pnl && obj.profit) obj.pnl = obj.profit;
+    obj.pnl = parseFloat(obj.pnl) || 0;
+    obj.pips = parseFloat(obj.pips) || 0;
+    if (!obj.pair && obj.symbol) obj.pair = obj.symbol;
+    if (!obj.time) obj.time = "00:00";
+    return obj;
+  }).filter(r => r.date);
+}
+
+// ── Theme Context ─────────────────────────────────────────────────────────
+const ThemeContext = createContext({});
+const useTheme = () => useContext(ThemeContext);
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+const fmt = (n) => {
+  const abs = Math.abs(n);
+  return (n < 0 ? "-" : "") + abs.toLocaleString("ja-JP");
+};
+const fmtPips = (n) => (n >= 0 ? "+" : "") + n.toFixed(1) + " pips";
+const pnlColor = (v, T) => v >= 0 ? (T?.positive || "#00e5a0") : (T?.negative || "#ff4d6d");
+
+// 勝ち/負け判定（勝ち閾値・負け閾値を個別指定、閾値以上/以下で判定）
+const tradeResult = (t, winThreshold = 0.0, lossThreshold = 0.0) => {
+  if (t.pips >= winThreshold) return "win";
+  if (t.pips <= -lossThreshold) return "loss";
+  return "draw";
+};
+const resultColor = (r, T) => r === "win" ? (T?.positive || "#00e5a0") : r === "loss" ? (T?.negative || "#ff4d6d") : (T?.textMuted || "#888");
+
+// ── Trading Date (07:00〜翌06:59 を1日とする) ──────────────────────────────
+// 時刻が 00:00〜06:59 の場合は前日扱い
+function getTradingDate(date, time) {
+  if (!date) return date;
+  const [h, m] = (time || "00:00").split(":").map(Number);
+  const totalMin = h * 60 + (m || 0);
+  if (totalMin < 7 * 60) {
+    // 前日にずらす - Date オブジェクトを使わず文字列計算でタイムゾーン問題を回避
+    const [y, mo, d] = date.split("-").map(Number);
+    let pd = d - 1, pm = mo, py = y;
+    if (pd === 0) {
+      pm--;
+      if (pm === 0) { pm = 12; py--; }
+      const daysInMonth = new Date(py, pm, 0).getDate();
+      pd = daysInMonth;
+    }
+    return `${py}-${String(pm).padStart(2,"0")}-${String(pd).padStart(2,"0")}`;
+  }
+  return date;
+}
+
+// ── Calendar View ──────────────────────────────────────────────────────────
+// ── Day Detail Modal ──────────────────────────────────────────────────────
+function DayModal({ date: initialDate, trades, onClose, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+  const [date, setDate] = useState(initialDate);
+
+  // 取引のある日付一覧（昇順）
+  const tradingDates = useMemo(() => {
+    const days = new Set(trades.map(t => getTradingDate(t.date, t.time)));
+    return [...days].sort();
+  }, [trades]);
+
+  const currentIdx = tradingDates.indexOf(date);
+  const prevDate = currentIdx > 0 ? tradingDates[currentIdx - 1] : null;
+  const nextDate = currentIdx < tradingDates.length - 1 ? tradingDates[currentIdx + 1] : null;
+
+  const dayTrades = useMemo(() =>
+    trades
+      .filter(t => getTradingDate(t.date, t.time) === date)
+      .sort((a, b) => {
+        const toMin = t => {
+          const [h, m] = (t.time || "00:00").split(":").map(Number);
+          const total = h * 60 + m;
+          return total < 7 * 60 ? total + 24 * 60 : total;
+        };
+        if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+        return toMin(a) - toMin(b);
+      }),
+  [trades, date]);
+
+  const wins = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
+  const losses = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
+  const draws = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
+  const totalPnL = dayTrades.reduce((s, t) => s + t.pnl, 0);
+  const decided = wins.length + losses.length;
+  const winRate = decided ? (wins.length / decided * 100).toFixed(1) : "—";
+  const avgWinPips = wins.length ? (wins.reduce((s, t) => s + t.pips, 0) / wins.length).toFixed(2) : "—";
+  const avgLossPips = losses.length ? (losses.reduce((s, t) => s + t.pips, 0) / losses.length).toFixed(2) : "—";
+
+  const violations = calcViolations(dayTrades);
+  const v = violations[date];
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 500,
+      background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 16,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#13131f", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: 16, padding: 24, width: "100%", maxWidth: 480,
+        maxHeight: "85vh", overflowY: "auto",
+      }}>
+        {/* Modal Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => prevDate && setDate(prevDate)}
+              style={{ ...navBtn, ...T.navBtn, opacity: prevDate ? 1 : 0.2, cursor: prevDate ? "pointer" : "default", width: 30, height: 30, fontSize: 16 }}>‹</button>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: T.text, textAlign: "center" }}>{date}</div>
+              <div style={{ fontSize: 13, color: T.textMuted, marginTop: 2, textAlign: "center" }}>{dayTrades.length}件のトレード</div>
+            </div>
+            <button onClick={() => nextDate && setDate(nextDate)}
+              style={{ ...navBtn, ...T.navBtn, opacity: nextDate ? 1 : 0.2, cursor: nextDate ? "pointer" : "default", width: 30, height: 30, fontSize: 16 }}>›</button>
+          </div>
+          <button onClick={onClose} style={{
+            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+            color: "#888", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 17,
+          }}>×</button>
+        </div>
+
+        {/* Summary Stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+          {[
+            { label: "日間損益", value: fmt(totalPnL), color: pnlColor(totalPnL, T), big: true },
+            { label: "勝率", value: winRate === "—" ? "—" : winRate + "%", color: T.text },
+            { label: "取引数", value: `${dayTrades.length} (勝${wins.length}/負${losses.length}/分${draws.length})`, color: T.text },
+            { label: "勝の平均pips", value: avgWinPips === "—" ? "—" : "+" + avgWinPips, color: T.positive },
+            { label: "負の平均pips", value: avgLossPips === "—" ? "—" : avgLossPips, color: T.negative },
+          ].map(c => (
+            <div key={c.label} style={{
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)",
+              borderRadius: 10, padding: "12px 14px",
+            }}>
+              <div style={{ fontSize: 14, color: "#555", marginBottom: 4 }}>{c.label}</div>
+              <div style={{ fontSize: c.big ? 20 : 15, fontWeight: 700, color: c.color }}>{c.value}</div>
+            </div>
+          ))}
+          {v && (
+            <div style={{
+              background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
+              borderRadius: 10, padding: "12px 14px",
+            }}>
+              <div style={{ fontSize: 14, color: T.negative, marginBottom: 4 }}>ルール違反</div>
+              <div style={{ fontSize: 15, color: T.negative, fontWeight: 700 }}>
+                違反: {v.v1}回
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Day Equity Curve */}
+        {dayTrades.length > 1 && (() => {
+          let cum = 0;
+          const curveData = dayTrades.map((t, i) => {
+            cum += t.pnl;
+            return { idx: i, pnl: cum, time: t.time, pair: t.pair };
+          });
+          const isPositive = cum >= 0;
+          const color = isPositive ? T.positive : T.negative;
+          return (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 6 }}>日中損益曲線</div>
+              <ResponsiveContainer width="100%" height={100}>
+                <AreaChart data={curveData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="dayGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={color} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.chartGrid} />
+                  <XAxis dataKey="time" tick={{ fill: T.chartTick, fontSize: 11 }} interval="preserveStartEnd" height={20} />
+                  <YAxis tickFormatter={v => (v / 1000).toFixed(0) + "K"} tick={{ fill: T.chartTick, fontSize: 11 }} width={36} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null;
+                      return (
+                        <div style={{ background: T.tooltipBg, border: `1px solid ${T.tooltipBorder}`, borderRadius: 6, padding: "6px 10px", fontSize: 12 }}>
+                          <div style={{ color: T.textSub }}>{payload[0].payload.time} {payload[0].payload.pair}</div>
+                          <div style={{ color: pnlColor(payload[0].value, T), fontWeight: 700 }}>{fmt(payload[0].value)}</div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Area type="monotone" dataKey="pnl" stroke={color} strokeWidth={1.5} fill="url(#dayGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        })()}
+
+        {/* Trade List */}
+        <div style={{ fontSize: 15, color: "#555", marginBottom: 8 }}>トレード一覧</div>
+        {dayTrades.map(t => {
+          const r = tradeResult(t, winThreshold, lossThreshold);
+          return (
+            <div key={t.id} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 14,
+            }}>
+              <div style={{ color: "#666", width: 44 }}>{t.time}</div>
+              <div style={{ color: T.text, fontWeight: 600, width: 68 }}>{t.pair}</div>
+              <span style={{
+                padding: "1px 6px", borderRadius: 4, fontSize: 14, fontWeight: 700, width: 32, textAlign: "center",
+                background: t.direction === "BUY" ? "rgba(0,229,160,0.15)" : "rgba(255,77,109,0.15)",
+                color: t.direction === "BUY" ? T.positive : T.negative,
+              }}>{t.direction}</span>
+              <div style={{ flex: 1, textAlign: "right", fontWeight: 700, color: pnlColor(t.pnl, T) }}>{fmt(t.pnl)}</div>
+              <div style={{ width: 60, textAlign: "right", color: pnlColor(t.pips, T) }}>{fmtPips(t.pips)}</div>
+              <span style={{
+                padding: "1px 6px", borderRadius: 4, fontSize: 14, fontWeight: 700,
+                background: r === "win" ? "rgba(0,229,160,0.15)" : r === "loss" ? "rgba(255,77,109,0.15)" : "rgba(136,136,136,0.15)",
+                color: resultColor(r, T),
+              }}>{r === "win" ? "勝" : r === "loss" ? "負" : "分"}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 'pnl', selectedMonth, winThreshold = 0.0, lossThreshold = 0.0, violThreshold = -6.0 }) {
+  const T = useTheme();
+  const [calendarUnit, setCalendarUnit] = useState(calendarUnitProp);
+  const [viewDate, setViewDate] = useState(() => {
+    if (trades.length === 0) return new Date();
+    const tradingDates = trades.map(t => getTradingDate(t.date, t.time)).sort().reverse();
+    const latest = tradingDates[0] || trades[0].date;
+    return new Date(latest + "T12:00:00");
+  });
+
+  // サマリーなど外部からの月変更に追従
+  useEffect(() => {
+    if (selectedMonth) {
+      setViewDate(new Date(selectedMonth + "-15T12:00:00"));
+    }
+  }, [selectedMonth]);
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
+  const dailyPnL = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      map[td] = (map[td] || 0) + t.pnl;
+    });
+    return map;
+  }, [trades]);
+
+  const dailyPips = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      map[td] = (map[td] || 0) + t.pips;
+    });
+    return map;
+  }, [trades]);
+
+  // サブ表示項目: winRate / count / violations
+  const [calendarSub, setCalendarSub] = useState("none");
+
+  const dailyStats = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      if (!map[td]) map[td] = { wins: 0, losses: 0, draws: 0, count: 0, viols: 0 };
+      map[td].count++;
+      const r = tradeResult(t, winThreshold, lossThreshold);
+      if (r === "win") map[td].wins++;
+      else if (r === "loss") map[td].losses++;
+      else map[td].draws++;
+      if (t.pips <= violThreshold) map[td].viols++;
+    });
+    return map;
+  }, [trades, winThreshold, lossThreshold, violThreshold]);
+
+  const firstDay = (new Date(year, month, 1).getDay() + 6) % 7; // 月曜=0, 日曜=6
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const monthPnL = Object.entries(dailyPnL).filter(([k]) => k.startsWith(monthKey)).reduce((s, [, v]) => s + v, 0);
+  const tradeDays = Object.keys(dailyPnL).filter(k => k.startsWith(monthKey)).length;
+  const monthTrades = trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey));
+  const monthWins = monthTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win").length;
+  const monthDecided = monthTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) !== "draw").length;
+  const monthWinRate = monthDecided ? Math.round(monthWins / monthDecided * 100) : 0;
+
+  return (
+    <div style={{ fontFamily: "'DM Mono', monospace" }}>
+      {selectedDay && (
+        <DayModal date={selectedDay} trades={trades} onClose={() => setSelectedDay(null)} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+      )}
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <button onClick={() => {
+          const d = new Date(year, month - 1, 1);
+          setViewDate(d);
+          onMonthChange && onMonthChange(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+        }} style={{...navBtn, ...T.navBtn}}>‹</button>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: T.text, letterSpacing: 2 }}>
+            {year}年 {month + 1}月
+          </div>
+          <div style={{ fontSize: 15, marginTop: 4 }}>
+            <span style={{ color: pnlColor(monthPnL, T), fontWeight: 700, fontSize: 20 }}>{fmt(monthPnL)}</span>
+            <span style={{ color: T.textSub, marginLeft: 12 }}>勝率: {monthWinRate}%</span>
+          </div>
+        </div>
+        <button onClick={() => {
+          const d = new Date(year, month + 1, 1);
+          setViewDate(d);
+          onMonthChange && onMonthChange(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+        }} style={{...navBtn, ...T.navBtn}}>›</button>
+      </div>
+
+      {/* Day labels */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr", gap: 4, marginBottom: 4 }}>
+        {[["月","#666"],["火","#666"],["水","#666"],["木","#666"],["金","#666"],["土","#4a6fa5"],["日","#7a3a3a"]].map(([d, c]) => (
+          <div key={d} style={{ textAlign: "center", fontSize: 12, color: c, padding: "2px 0" }}>{d}</div>
+        ))}
+      </div>
+
+      {/* Cells */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr", gap: 4 }}>
+        {cells.map((day, i) => {
+          const colIndex = i % 7; // 0=月...4=金,5=土,6=日
+          const isWeekend = colIndex >= 5;
+          if (!day) return <div key={`e-${i}`} />;
+          const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const pnl = dailyPnL[key];
+          const pips = dailyPips[key];
+          const displayVal = calendarUnit === "pips" ? pips : pnl;
+          const hasData = pnl !== undefined;
+          const isToday = new Date().toISOString().split("T")[0] === key;
+          const intensity = hasData ? Math.min(Math.abs(pnl) / 30000, 1) : 0;
+          const bg = hasData
+            ? pnl >= 0
+              ? `rgba(0, 229, 160, ${0.12 + intensity * 0.35})`
+              : `rgba(255, 77, 109, ${0.12 + intensity * 0.35})`
+            : "rgba(255,255,255,0.03)";
+          return (
+            <div key={key} onClick={() => hasData && setSelectedDay(key)} style={{
+              background: isWeekend && !hasData ? "rgba(255,255,255,0.01)" : bg,
+              border: isToday ? "1px solid #f5c842" : "1px solid rgba(255,255,255,0.04)",
+              borderRadius: 6, padding: "4px 2px", textAlign: "center",
+              minHeight: 54,
+              display: "flex", flexDirection: "column", justifyContent: "space-between",
+              cursor: hasData ? "pointer" : "default",
+              transition: "border-color 0.15s",
+              opacity: isWeekend && !hasData ? 0.4 : 1,
+            }}
+            onMouseEnter={e => { if (hasData) e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; }}
+            onMouseLeave={e => { if (hasData) e.currentTarget.style.borderColor = isToday ? "#f5c842" : "rgba(255,255,255,0.05)"; }}
+            >
+              <div style={{ fontSize: 13, color: isToday ? "#f5c842" : "#999" }}>{day}</div>
+              {hasData && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: pnlColor(displayVal ?? 0, T), lineHeight: 1.2, wordBreak: "break-all", textAlign: "center" }}>
+                  {calendarUnit === "pips"
+                    ? (displayVal >= 0 ? "+" : "") + (displayVal ?? 0).toFixed(1)
+                    : (displayVal >= 0 ? "+" : "") + fmt(displayVal ?? 0)}
+                </div>
+              )}
+              {hasData && calendarSub !== "none" && (() => {
+                const s = dailyStats[key];
+                if (!s) return null;
+                if (calendarSub === "winRate") {
+                  const dec = s.wins + s.losses;
+                  const wr = dec ? Math.round(s.wins / dec * 100) : null;
+                  return <div style={{ fontSize: 11, color: wr >= 50 ? T.positive : T.negative, lineHeight: 1 }}>{wr !== null ? wr + "%" : "—"}</div>;
+                }
+                if (calendarSub === "count") {
+                  return <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1 }}>{s.count}件</div>;
+                }
+                if (calendarSub === "viols") {
+                  return s.viols > 0
+                    ? <div style={{ fontSize: 11, color: T.negative, lineHeight: 1 }}>⚠{s.viols}</div>
+                    : null;
+                }
+              })()}
+            </div>
+          );
+        })}
+      </div>
+      {/* Toggles */}
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[["pnl", "¥"], ["pips", "pips"]].map(([val, label]) => (
+            <button key={val} onClick={() => setCalendarUnit(val)} style={{
+              padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              border: calendarUnit === val ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.border}`,
+              background: calendarUnit === val ? T.tabActive : T.surface,
+              color: calendarUnit === val ? T.tabActiveText : T.textMuted,
+            }}>{label}</button>
+          ))}
+        </div>
+        <div style={{ width: 1, height: 18, background: T.border }} />
+        <div style={{ display: "flex", gap: 4 }}>
+          {[["none", "—"], ["winRate", "勝率"], ["count", "件数"], ["viols", "違反"]].map(([val, label]) => (
+            <button key={val} onClick={() => setCalendarSub(val)} style={{
+              padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              border: calendarSub === val ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.border}`,
+              background: calendarSub === val ? T.tabActive : T.surface,
+              color: calendarSub === val ? T.tabActiveText : T.textMuted,
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Rule Violation Calculator ─────────────────────────────────────────────
+function calcViolations(trades, violThreshold = -6.0) {
+  // Group by date, sort each day's trades by datetime
+  const byDate = {};
+  trades.forEach(t => {
+    const td = getTradingDate(t.date, t.time);
+    if (!byDate[td]) byDate[td] = [];
+    byDate[td].push(t);
+  });
+  const result = {};
+  Object.entries(byDate).forEach(([date, dayTrades]) => {
+    const sorted = [...dayTrades].sort((a, b) => {
+      const ta = new Date(a.date + "T" + (a.time || "00:00"));
+      const tb = new Date(b.date + "T" + (b.time || "00:00"));
+      return ta - tb;
+    });
+    let v1 = 0;
+    sorted.forEach(t => {
+      if (t.pips <= violThreshold) v1++;
+    });
+    if (v1 > 0) result[date] = { v1, total: v1 };
+  });
+  return result;
+}
+
+// ── Stats Cards ────────────────────────────────────────────────────────────
+function StatsCards({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+  const stats = useMemo(() => {
+    const filtered = monthKey
+      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      : trades;
+    const wins = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
+    const losses = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
+    const draws = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
+    const monthPnL = filtered.reduce((s, t) => s + t.pnl, 0);
+    const monthPips = filtered.reduce((s, t) => s + (t.pips || 0), 0);
+    const decided = wins.length + losses.length;
+    const winRate = decided ? (wins.length / decided * 100).toFixed(1) : 0;
+    const avgWinPips = wins.length ? (wins.reduce((s, t) => s + t.pips, 0) / wins.length).toFixed(2) : "—";
+    const avgLossPips = losses.length ? (losses.reduce((s, t) => s + t.pips, 0) / losses.length).toFixed(2) : "—";
+    return {
+      monthPnL, monthPips, winRate,
+      total: filtered.length, wins: wins.length, losses: losses.length, draws: draws.length,
+      avgWinPips, avgLossPips,
+    };
+  }, [trades, monthKey, winThreshold]);
+
+  // データなしでも表示（値は0や—）
+
+  const statItems = [
+    {
+      label: "月間損益",
+      value: fmt(stats.monthPnL),
+      sub: (stats.monthPips >= 0 ? "+" : "") + (stats.monthPips || 0).toFixed(1) + " pips",
+      color: pnlColor(stats.monthPnL, T),
+      big: true,
+    },
+    {
+      label: "勝率",
+      value: stats.winRate + "%",
+      sub: `${stats.wins}勝 ${stats.losses}負 ${stats.draws}分`,
+      color: T.text,
+    },
+
+    {
+      label: "勝の平均pips",
+      value: stats.avgWinPips === "—" ? "—" : "+" + stats.avgWinPips,
+      sub: null,
+      color: T.positive,
+    },
+    {
+      label: "負の平均pips",
+      value: stats.avgLossPips === "—" ? "—" : stats.avgLossPips,
+      sub: null,
+      color: T.negative,
+    },
+  ];
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
+      {statItems.map(c => (
+        <div key={c.label} style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderRadius: 10,
+          padding: "14px 16px",
+        }}>
+          <div style={{ fontSize: 15, color: T.textMuted, marginBottom: 6, letterSpacing: 1 }}>{c.label}</div>
+          <div style={{ fontSize: c.big ? 22 : 18, fontWeight: 700, color: c.color }}>{c.value}</div>
+          {c.sub && <div style={{ fontSize: 14, color: T.textFaint, marginTop: 4 }}>{c.sub}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Violation Table ────────────────────────────────────────────────────────
+// ── Tooltip wrapper ───────────────────────────────────────────────────────
+function WithTooltip({ tip, children }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      {children}
+      {show && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 6px)", left: "50%",
+          transform: "translateX(-50%)",
+          background: "#1e1e2e", border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#ccc",
+          whiteSpace: "nowrap", zIndex: 200, pointerEvents: "none",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+        }}>
+          {tip}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ViolationTable({ trades, monthKey, onDrillDown, violThreshold = -6.0 }) {
+  const T = useTheme();
+  const violations = useMemo(() => {
+    const filtered = monthKey
+      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      : trades;
+    return calcViolations(filtered, violThreshold);
+  }, [trades, monthKey]);
+
+  // 当月の取引があった全日付を昇順で取得
+  const allTradeDays = useMemo(() => {
+    const days = [...new Set(
+      trades
+        .map(t => getTradingDate(t.date, t.time))
+        .filter(d => monthKey ? d.startsWith(monthKey) : true)
+    )].sort();
+    return days;
+  }, [trades, monthKey]);
+
+  const entries = allTradeDays.map(date => [date, violations[date] || { v1: 0, v2: 0, total: 0 }]);
+  if (!entries.length) return (
+    <div style={{ color: "#555", fontSize: 15, padding: "20px 0" }}>ルール違反なし ✓</div>
+  );
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, marginBottom: 8 }}>
+        {[
+          { label: "日付", tip: null },
+          { label: "ルール違反", tip: `1トレードで ${violThreshold}pips 以下の損切り` },
+        ].map(({ label, tip }) => (
+          <div key={label} style={{ fontSize: 15, color: "#555", padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+            {tip ? <WithTooltip tip={tip}><span style={{ borderBottom: "1px dashed #555", cursor: "default" }}>{label}</span></WithTooltip> : label}
+          </div>
+        ))}
+      </div>
+      {entries.map(([date, v]) => (
+        <div key={date} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0,
+          borderBottom: "1px solid rgba(255,255,255,0.04)", background: v.total > 2 ? "rgba(255,77,109,0.04)" : "transparent" }}>
+          <div style={{ padding: "9px 10px", fontSize: 15, color: "#aaa" }}>{date}</div>
+          <div style={{ padding: "9px 10px", fontSize: 15 }}>
+            {v.v1 > 0
+              ? <span
+                  onClick={() => onDrillDown && onDrillDown(date)}
+                  style={{ color: T.negative, fontWeight: 700, cursor: "pointer",
+                    borderBottom: `1px dashed ${T.negative}60`, paddingBottom: 1 }}>
+                  {v.v1}回
+                </span>
+              : <span style={{ color: "#555" }}>—</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Equity Curve ───────────────────────────────────────────────────────────
+function EquityCurve({ trades, monthKey }) {
+  const T = useTheme();
+  const data = useMemo(() => {
+    const filtered = monthKey
+      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      : trades;
+    const sorted = [...filtered].sort((a, b) => new Date(a.date + "T" + a.time) - new Date(b.date + "T" + b.time));
+    let cum = 0;
+    return sorted.map((t, i) => {
+      cum += t.pnl;
+      const td = getTradingDate(t.date, t.time);
+      return { pnl: cum, idx: i, date: td, time: t.time };
+    });
+  }, [trades, monthKey]);
+
+  // 日の境目インデックスとラベルを収集
+  const dayTicks = useMemo(() => {
+    const seen = new Set();
+    const result = [];
+    data.forEach(d => {
+      if (!seen.has(d.date)) {
+        seen.add(d.date);
+        result.push({ idx: d.idx, label: String(parseInt(d.date.slice(8), 10)) });
+      }
+    });
+    return result;
+  }, [data]);
+
+  const tickIndices = dayTicks.map(d => d.idx);
+  const tickMap = Object.fromEntries(dayTicks.map(d => [d.idx, d.label]));
+
+  return (
+    <div>
+      <div style={{ marginBottom: 4, fontSize: 15, color: T.textMuted }}>累計損益</div>
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={T.positive} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={T.positive} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke={T.chartGrid} />
+          <XAxis
+            dataKey="idx"
+            type="number"
+            domain={[0, data.length - 1]}
+            ticks={tickIndices}
+            tickFormatter={v => tickMap[v] || ""}
+            tick={{ fill: T.chartTick, fontSize: 12 }}
+            height={28}
+          />
+          <YAxis tickFormatter={v => (v / 1000).toFixed(0) + "K"} tick={{ fill: T.chartTick, fontSize: 12 }} width={40} />
+          <Tooltip
+            content={({ active, payload }) => {
+              if (!active || !payload || !payload.length) return null;
+              return (
+                <div style={{ background: T.tooltipBg, border: `1px solid ${T.tooltipBorder}`, borderRadius: 8, padding: "8px 12px", fontSize: 14 }}>
+                  <div style={{ color: T.textSub, marginBottom: 4 }}>{payload[0].payload.date} {payload[0].payload.time}</div>
+                  <div style={{ color: pnlColor(payload[0].value, T), fontWeight: 700 }}>{fmt(payload[0].value)}</div>
+                </div>
+              );
+            }}
+          />
+          <Area type="monotone" dataKey="pnl" stroke={T.positive} strokeWidth={1.5} fill="url(#pnlGrad)" dot={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── Hourly Analysis ────────────────────────────────────────────────────────
+function HourlyAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+  const data = useMemo(() => {
+    const filtered = monthKey
+      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      : trades;
+    const hourOrder = [...Array(24).keys()].map(i => (i + 7) % 24);
+    const hours = hourOrder.map(h => ({ hour: h, pnl: 0, wins: 0, losses: 0, draws: 0, totalPips: 0, winPips: 0, lossPips: 0, count: 0 }));
+    filtered.forEach(t => {
+      const h = parseInt((t.time || "00:00").split(":")[0]);
+      if (!isNaN(h)) {
+        const idx = (h - 7 + 24) % 24;
+        hours[idx].pnl += t.pnl;
+        hours[idx].totalPips += t.pips;
+        hours[idx].count += 1;
+        const r = tradeResult(t, winThreshold, lossThreshold);
+        if (r === "win") { hours[idx].wins++; hours[idx].winPips += t.pips; }
+        else if (r === "loss") { hours[idx].losses++; hours[idx].lossPips += t.pips; }
+        else hours[idx].draws++;
+      }
+    });
+    return hours.map(h => {
+      const decided = h.wins + h.losses;
+      return {
+        ...h,
+        label: `${String(h.hour).padStart(2, "0")}h`,
+        winRate: decided ? (h.wins / decided * 100).toFixed(0) : null,
+        avgPips: h.count ? (h.totalPips / h.count).toFixed(1) : null,
+        avgWinPips: h.wins ? (h.winPips / h.wins).toFixed(2) : null,
+        avgLossPips: h.losses ? (h.lossPips / h.losses).toFixed(2) : null,
+      };
+    });
+  }, [trades, monthKey]);
+
+  const tableData = data.filter(h => h.count > 0);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 8, fontSize: 15, color: "#555" }}>時間帯別 累計損益</div>
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <XAxis dataKey="label" tick={{ fill: "#555", fontSize: 15 }} interval={1} />
+          <YAxis tickFormatter={v => (v / 1000).toFixed(0) + "K"} tick={{ fill: "#555", fontSize: 14 }} width={38} />
+          <Tooltip
+            content={({ active, payload, label }) => {
+              if (!active || !payload || !payload.length) return null;
+              return (
+                <div style={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, padding: "8px 12px", fontSize: 14 }}>
+                  <div style={{ color: "#aaa", marginBottom: 4 }}>{label}</div>
+                  <div style={{ color: pnlColor(payload[0].value, T), fontWeight: 700 }}>{fmt(payload[0].value)}</div>
+                </div>
+              );
+            }}
+          />
+          <Bar dataKey="pnl" radius={[3, 3, 0, 0]}>
+            {data.map((entry, i) => (
+              <Cell key={i} fill={entry.pnl >= 0 ? "#00e5a0" : "#ff4d6d"} fillOpacity={0.85} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+
+      {/* Table */}
+      {tableData.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr 1fr", gap: 0, marginBottom: 4 }}>
+            {["時間帯", "損益(pips)", "勝率", "勝/負/分", "勝均pips", "負均pips", "損益(円)"].map(h => (
+              <div key={h} style={{ fontSize: 13, color: T.textMuted, padding: "6px 10px", textAlign: ["損益(pips)","勝率","勝/負/分","勝均pips","負均pips","損益(円)"].includes(h) ? "right" : "left", borderBottom: `1px solid ${T.border}` }}>{h}</div>
+            ))}
+          </div>
+          {(() => {
+            const top3 = [...tableData]
+              .sort((a, b) => b.totalPips - a.totalPips)
+              .slice(0, 3)
+              .map(h => h.label);
+            const rank = (label) => top3.indexOf(label); // 0=1位, 1=2位, 2=3位, -1=圏外
+            const medals = ["🥇", "🥈", "🥉"];
+            return tableData.map(h => {
+              const r = rank(h.label);
+              const isTop = r >= 0;
+              return (
+                <div key={h.label} style={{
+                  display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr 1fr", gap: 0,
+                  borderBottom: "1px solid rgba(255,255,255,0.04)",
+                  background: isTop ? `rgba(0,229,160,${0.10 - r * 0.025})` : "transparent",
+                  borderLeft: isTop ? `3px solid rgba(0,229,160,${0.8 - r * 0.2})` : "3px solid transparent",
+                }}>
+                  <div style={{ padding: "8px 10px", fontSize: 14, fontWeight: isTop ? 700 : 400, color: isTop ? T.positive : T.textSub }}>
+                    {isTop && <span style={{ marginRight: 4 }}>{medals[r]}</span>}{h.label}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, fontWeight: 700, textAlign: "right", color: pnlColor(h.totalPips, T) }}>
+                    {h.count > 0 ? (h.totalPips >= 0 ? "+" : "") + h.totalPips.toFixed(1) : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, textAlign: "right", color: h.winRate >= 50 ? T.positive : T.negative }}>
+                    {h.winRate !== null ? h.winRate + "%" : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 13, textAlign: "right", color: T.textSub }}>
+                    {h.count > 0 ? `${h.wins}/${h.losses}/${h.draws}` : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, textAlign: "right", color: T.positive }}>
+                    {h.avgWinPips !== null ? "+" + h.avgWinPips : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, textAlign: "right", color: T.negative }}>
+                    {h.avgLossPips !== null ? h.avgLossPips : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px", fontSize: 14, fontWeight: 700, textAlign: "right", color: pnlColor(h.pnl, T) }}>{h.count > 0 ? fmt(h.pnl) : "—"}</div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Pair Analysis ──────────────────────────────────────────────────────────
+function PairAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+  const data = useMemo(() => {
+    const filtered = monthKey ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey)) : trades;
+    const map = {};
+    filtered.forEach(t => {
+      const p = t.pair || "UNKNOWN";
+      if (!map[p]) map[p] = { pair: p, pnl: 0, count: 0, wins: 0, losses: 0, draws: 0 };
+      map[p].pnl += t.pnl;
+      map[p].count += 1;
+      const r = tradeResult(t, winThreshold, lossThreshold);
+      if (r === "win") map[p].wins += 1;
+      else if (r === "loss") map[p].losses += 1;
+      else map[p].draws += 1;
+    });
+    return Object.values(map).sort((a, b) => b.pnl - a.pnl);
+  }, [trades, monthKey, winThreshold, lossThreshold]);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "56px 1fr 56px 1.2fr" }}>
+      {/* Header */}
+      {["ペア", "損益(円)", "取引数", "勝率 (勝/負/分)"].map((h, i) => (
+        <div key={h} style={{ fontSize: 12, color: T.textMuted, padding: "6px 8px 8px",
+          textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
+      ))}
+      {/* Rows */}
+      {data.map(d => {
+        const decided = d.wins + d.losses;
+        const wr = decided > 0 ? (d.wins / decided * 100).toFixed(1) : "—";
+        return [
+          <div key={d.pair+"p"} style={{ padding: "10px 8px", fontSize: 14, fontWeight: 700, color: T.text, borderBottom: `1px solid ${T.border}` }}>{d.pair}</div>,
+          <div key={d.pair+"pnl"} style={{ padding: "10px 8px", fontSize: 14, fontWeight: 700, textAlign: "right", color: pnlColor(d.pnl, T), borderBottom: `1px solid ${T.border}` }}>{fmt(d.pnl)}</div>,
+          <div key={d.pair+"c"} style={{ padding: "10px 8px", fontSize: 14, textAlign: "right", color: T.textSub, borderBottom: `1px solid ${T.border}` }}>{d.count}</div>,
+          <div key={d.pair+"w"} style={{ padding: "10px 8px", fontSize: 13, textAlign: "right", color: T.textSub, borderBottom: `1px solid ${T.border}` }}>
+            {wr !== "—" ? wr + "%" : "—"}<span style={{ color: T.textFaint, marginLeft: 4 }}>({d.wins}/{d.losses}/{d.draws})</span>
+          </div>,
+        ];
+      })}
+    </div>
+  );
+}
+
+// ── Trade List ─────────────────────────────────────────────────────────────
+function TradeList({ trades, monthKey, listFilter, setListFilter, winThreshold = 0.0, lossThreshold = 0.0, violThreshold = -6.0 }) {
+  const T = useTheme();
+  const filterDate = listFilter?.date || "";
+  const filterViolation = listFilter?.violationOnly || false;
+
+  const monthFiltered = monthKey
+    ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+    : [...trades];
+  const violDates = new Set(Object.keys(calcViolations(monthFiltered)));
+  let recent = [...monthFiltered].sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  if (filterDate) recent = recent.filter(t => getTradingDate(t.date, t.time) === filterDate);
+  if (filterViolation) recent = recent.filter(t => t.pips <= violThreshold);
+  return (
+    <div>
+      {/* Filter Bar */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+        <input
+          type="date"
+          value={filterDate}
+          onChange={e => setListFilter({ date: e.target.value || null, violationOnly: filterViolation })}
+          style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+            color: T.text, borderRadius: 6, padding: "6px 10px", fontSize: 13, cursor: "pointer" }}
+        />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: T.textSub }}>
+          <input type="checkbox" checked={filterViolation}
+            onChange={e => setListFilter({ date: filterDate || null, violationOnly: e.target.checked })}
+            style={{ accentColor: T.negative, width: 14, height: 14 }} />
+          ルール違反のみ
+        </label>
+        {(filterDate || filterViolation) && (
+          <button onClick={() => setListFilter({ date: null, violationOnly: false })}
+            style={{ background: T.surface, border: `1px solid ${T.border}`,
+              color: T.textSub, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>
+            絞り込み解除
+          </button>
+        )}
+        <span style={{ fontSize: 12, color: T.textFaint, marginLeft: "auto" }}>{recent.length}件</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+            {["日付", "時刻", "ペア", "方向", "Lots", "損益", "Pips", "判定", "保有時間", ""].map(h => (
+              <th key={h} style={{ padding: "8px 10px", textAlign: ["Lots","損益","Pips","保有時間"].includes(h) ? "right" : h === "" ? "center" : "left", color: T.textMuted, fontWeight: 500, fontSize: 15 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {recent.map(t => (
+            <tr key={t.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+              <td style={{ padding: "7px 10px", color: T.text }}>{t.date}</td>
+              <td style={{ padding: "7px 10px", color: T.textSub }}>{t.time}</td>
+              <td style={{ padding: "7px 10px", color: T.text, fontWeight: 600 }}>{t.pair}</td>
+              <td style={{ padding: "7px 10px" }}>
+                <span style={{
+                  padding: "2px 7px", borderRadius: 4, fontSize: 14, fontWeight: 700,
+                  background: t.direction === "BUY" ? "rgba(0,229,160,0.15)" : "rgba(255,77,109,0.15)",
+                  color: t.direction === "BUY" ? T.positive : T.negative,
+                }}>{t.direction}</span>
+              </td>
+              <td style={{ padding: "7px 10px", color: T.textSub, textAlign: "right" }}>{t.lots}</td>
+              <td style={{ padding: "7px 10px", fontWeight: 700, textAlign: "right", color: pnlColor(t.pnl, T) }}>{fmt(t.pnl)}</td>
+              <td style={{ padding: "7px 10px", textAlign: "right", color: pnlColor(t.pips, T) }}>{fmtPips(t.pips)}</td>
+              <td style={{ padding: "7px 10px" }}>
+                {(() => { const r = tradeResult(t, winThreshold, lossThreshold); return (
+                  <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 14, fontWeight: 700,
+                    background: r === "win" ? "rgba(0,229,160,0.15)" : r === "loss" ? "rgba(255,77,109,0.15)" : "rgba(136,136,136,0.15)",
+                    color: resultColor(r, T) }}>
+                    {r === "win" ? "勝" : r === "loss" ? "負" : "分"}
+                  </span>
+                ); })()}
+              </td>
+              <td style={{ padding: "7px 10px", color: T.textMuted, fontSize: 13, textAlign: "right" }}>
+                {t.holdMin != null ? (() => {
+                  const totalSec = Math.round(t.holdMin * 60);
+                  const h = Math.floor(totalSec / 3600);
+                  const m = Math.floor((totalSec % 3600) / 60);
+                  const s = totalSec % 60;
+                  if (h > 0) return `${h}h${m}m${s}s`;
+                  if (m > 0) return `${m}m${s}s`;
+                  return `${s}s`;
+                })() : "—"}
+              </td>
+              <td style={{ padding: "7px 6px", fontSize: 16, textAlign: "center" }}>
+                {t.pips <= violThreshold ? (
+                  <WithTooltip tip={`ルール違反（${violThreshold}pips以下）`}>
+                    <span style={{ cursor: "default" }}>⚠️</span>
+                  </WithTooltip>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Nav Button Style ───────────────────────────────────────────────────────
+const navBtn = {
+  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+  color: "#aaa", borderRadius: 8, width: 36, height: 36, cursor: "pointer",
+  fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center",
+};
+
+// ── Section Wrapper ────────────────────────────────────────────────────────
+function Section({ title, children }) {
+  const T = useTheme();
+  return (
+    <div style={{
+      background: T.sectionBg || T.surface || "rgba(255,255,255,0.04)",
+      border: `1px solid ${T.sectionBorder || "rgba(255,255,255,0.06)"}`,
+      borderRadius: 14, padding: 24, marginBottom: 20,
+      boxShadow: T.theme === "cyber" ? "0 0 30px rgba(60,130,255,0.05), inset 0 1px 0 rgba(60,130,255,0.08)" : "none",
+    }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: T.textMuted || "#555", letterSpacing: 2, marginBottom: 18, textTransform: "uppercase" }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+// ── CSV Template ───────────────────────────────────────────────────────────
+const CSV_TEMPLATE = `date,time,pair,direction,lots,entryPrice,exitPrice,pnl,pips
+2025-06-01,09:30,USD/JPY,BUY,0.5,152.340,152.680,17000,3.4
+2025-06-01,14:15,EUR/USD,SELL,1.0,1.08920,1.08750,17000,1.7
+2025-06-02,10:00,GBP/USD,BUY,0.3,1.27100,1.26900,-6000,-2.0
+`;
+
+// ── Storage helpers ────────────────────────────────────────────────────────
+const STORAGE_KEY = "fxjournal_trades_v1";
+
+function loadFromStorage() {
+  try {
+    const raw = window.storage ? null : null; // use artifact storage below
+    return null;
+  } catch { return null; }
+}
+
+// Deduplicate key: orderId (broker) or date+time+pair+pnl combo
+function tradeKey(t) {
+  // If the original broker order id is preserved as t.id from broker rows, use it
+  // otherwise use a composite key
+  return t.orderId
+    ? String(t.orderId)
+    : `${t.date}_${t.time}_${t.pair}_${t.direction}_${t.pnl}`;
+}
+
+function mergeAndDedupe(existing, incoming) {
+  const map = new Map();
+  existing.forEach(t => map.set(tradeKey(t), t));
+  let added = 0;
+  incoming.forEach(t => {
+    const k = tradeKey(t);
+    if (!map.has(k)) { map.set(k, t); added++; }
+  });
+  const merged = Array.from(map.values()).sort((a, b) =>
+    new Date(b.date + "T" + b.time) - new Date(a.date + "T" + a.time)
+  );
+  return { merged, added, total: merged.length, dupes: incoming.length - added };
+}
+
+
+// ── FxMate Icon ────────────────────────────────────────────────────────────
+function FxMateIcon({ size = 40, theme = "dark" }) {
+  const isCyber = theme === "cyber";
+  const isLight = theme === "light";
+  const bg = isLight ? "#e8f5f2" : isCyber ? "#0d1a35" : "#0d1f1e";
+  const border = isLight ? "#5DCAA5" : isCyber ? "#3c82ff" : "#1D9E75";
+  const teal = isLight ? "#1D9E75" : "#00d4c8";
+  const pink = "#ff4d7a";
+  const s = size;
+  const r = s * 0.22;
+  const dotR = s * 0.09;
+  return (
+    <svg width={s} height={s} viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="38" height="38" rx="9" fill={bg} stroke={border} strokeWidth="1.5"/>
+      <rect x="1" y="1" width="38" height="10" rx="9" fill={border} opacity="0.4"/>
+      <rect x="1" y="7" width="38" height="4" fill={border} opacity="0.4"/>
+      {/* 6 dots: 3x2 grid */}
+      <circle cx="13" cy="20" r="4" fill={teal}/>
+      <circle cx="20" cy="20" r="4" fill={teal}/>
+      <circle cx="27" cy="20" r="4" fill={pink}/>
+      <circle cx="13" cy="29" r="4" fill={teal}/>
+      <circle cx="20" cy="29" r="4" fill={pink}/>
+      <circle cx="27" cy="29" r="4" fill={teal}/>
+    </svg>
+  );
+}
+
+
+// ── Tab Icons ──────────────────────────────────────────────────────────────
+function TabIcon({ id, active, color, size = 24 }) {
+  const s = size;
+  const c = color;
+  const teal = active ? c : "currentColor";
+  const pink = active ? "#ff4d7a" : "currentColor";
+  const stroke = active ? c : "currentColor";
+  const opacity = active ? 1 : 0.5;
+
+  const icons = {
+    calendar: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <rect x="3" y="4" width="18" height="17" rx="3" stroke={stroke} strokeWidth="1.5"/>
+        <path d="M3 9h18" stroke={stroke} strokeWidth="1.5"/>
+        <line x1="8" y1="2" x2="8" y2="6" stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="16" y1="2" x2="16" y2="6" stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="8"  cy="14" r="1.5" fill={teal}/>
+        <circle cx="12" cy="14" r="1.5" fill={teal}/>
+        <circle cx="16" cy="14" r="1.5" fill={pink}/>
+        <circle cx="8"  cy="18" r="1.5" fill={teal}/>
+        <circle cx="12" cy="18" r="1.5" fill={pink}/>
+      </svg>
+    ),
+    equity: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <rect x="3" y="3" width="18" height="18" rx="3" stroke={stroke} strokeWidth="1.5"/>
+        <polyline points="5,17 9,12 13,14 19,7" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <circle cx="19" cy="7" r="2" fill={pink}/>
+      </svg>
+    ),
+    hourly: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <circle cx="12" cy="12" r="9" stroke={stroke} strokeWidth="1.5"/>
+        <line x1="12" y1="7" x2="12" y2="12" stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="12" y1="12" x2="16" y2="14" stroke={pink} strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="12" cy="12" r="1.5" fill={teal}/>
+      </svg>
+    ),
+    violations: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <path d="M12 3 L21 8 L21 16 L12 21 L3 16 L3 8 Z" stroke={active ? "#ff4d7a" : "currentColor"} strokeWidth="1.5" strokeLinejoin="round"/>
+        <line x1="12" y1="9" x2="12" y2="13" stroke={active ? "#ff4d7a" : "currentColor"} strokeWidth="2" strokeLinecap="round"/>
+        <circle cx="12" cy="16" r="1.2" fill={active ? "#ff4d7a" : "currentColor"}/>
+      </svg>
+    ),
+    pair: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <rect x="3" y="3" width="18" height="18" rx="3" stroke={stroke} strokeWidth="1.5"/>
+        <line x1="7" y1="8"  x2="14" y2="8"  stroke={teal} strokeWidth="2" strokeLinecap="round"/>
+        <line x1="7" y1="12" x2="17" y2="12" stroke={teal} strokeWidth="2" strokeLinecap="round"/>
+        <line x1="7" y1="16" x2="12" y2="16" stroke={pink} strokeWidth="2" strokeLinecap="round"/>
+        <circle cx="17" cy="8"  r="2" fill={teal}/>
+        <circle cx="17" cy="16" r="2" fill={pink}/>
+      </svg>
+    ),
+    list: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <rect x="3" y="3" width="18" height="18" rx="3" stroke={stroke} strokeWidth="1.5"/>
+        <line x1="7" y1="9"  x2="15" y2="9"  stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="7" y1="13" x2="17" y2="13" stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="7" y1="17" x2="13" y2="17" stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="18" cy="9"  r="1.5" fill={teal}/>
+        <circle cx="18" cy="17" r="1.5" fill={pink}/>
+      </svg>
+    ),
+    settings: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <circle cx="12" cy="12" r="3" stroke={stroke} strokeWidth="1.5"/>
+        <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    ),
+  };
+  return icons[id] || null;
+}
+
+// ── Export Panel ───────────────────────────────────────────────────────────
+function ExportPanel({ trades, T }) {
+  const [showCsv, setShowCsv] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const csv = useMemo(() => {
+    if (!trades.length) return "";
+    const header = "date,time,pair,direction,lots,entryPrice,exitPrice,pnl,pips";
+    const rows = trades.map(t =>
+      [t.date, t.time, t.pair, t.direction, t.lots, t.entryPrice, t.exitPrice, t.pnl, t.pips].join(",")
+    );
+    return [header, ...rows].join("\n");
+  }, [trades]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(csv).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  if (!trades.length) return <div style={{ color: T.textFaint, fontSize: 13 }}>データがありません</div>;
+
+  return (
+    <div>
+      <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>データエクスポート</div>
+      <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 12 }}>
+        CSVをコピーして、テキストエディタで .csv ファイルとして保存してください。スタンドアロン版のCSV読込でそのまま取り込めます。
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: showCsv ? 10 : 0 }}>
+        <button onClick={() => setShowCsv(v => !v)} style={{
+          background: T.surface, border: `1px solid ${T.border}`,
+          color: T.textSub, borderRadius: 8, padding: "8px 16px",
+          cursor: "pointer", fontSize: 13,
+        }}>{showCsv ? "▲ 閉じる" : "▼ CSVを表示"} ({trades.length}件)</button>
+        {showCsv && (
+          <button onClick={handleCopy} style={{
+            background: copied ? "rgba(0,229,160,0.15)" : "rgba(100,160,255,0.1)",
+            border: copied ? "1px solid rgba(0,229,160,0.4)" : "1px solid rgba(100,160,255,0.3)",
+            color: copied ? T.positive : "#6fa0ff",
+            borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600,
+          }}>{copied ? "✓ コピー済み" : "📋 全てコピー"}</button>
+        )}
+      </div>
+      {showCsv && (
+        <textarea readOnly value={csv}
+          style={{ width: "100%", height: 160, background: T.inputBg,
+            border: `1px solid ${T.border}`, color: T.text,
+            borderRadius: 8, padding: 10, fontSize: 11, fontFamily: "monospace",
+            resize: "vertical" }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+// ── Main App ───────────────────────────────────────────────────────────────
+function App() {
+  const [trades, setTrades] = useState([]);
+  const [activeTab, setActiveTab] = useState("calendar");
+  const [settings, setSettings] = useState({});
+  const theme = settings.theme ?? "dark";
+  const isDark = theme === "dark" || theme === "cyber";
+  const violThreshold  = isNaN(settings.violThreshold)  ? -6.0 : (settings.violThreshold  ?? -6.0);
+  const winThreshold   = isNaN(settings.winThreshold)   ? 0.0  : (settings.winThreshold   ?? 0.0);
+  const lossThreshold  = isNaN(settings.lossThreshold)  ? 0.0  : (settings.lossThreshold  ?? 0.0);
+  const calendarUnit   = settings.calendarUnit  ?? "pnl"; // "pnl" or "pips"
+
+  const saveSettings = async (newSettings) => {
+    setSettings(newSettings);
+    try { await window.storage.set("fxjournal_settings_v1", JSON.stringify(newSettings)); } catch {}
+  };
+  const [listFilter, setListFilter] = useState({ date: null, violationOnly: false });
+  const [dragging, setDragging] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [importMsg, setImportMsg] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [exportCsv, setExportCsv] = useState(null);
+
+  // Load from persistent storage on mount
+  const loadTrades = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // Load settings
+      const sResult = await window.storage.get("fxjournal_settings_v1");
+      if (sResult && sResult.value) {
+        const s = JSON.parse(sResult.value);
+        if (s && typeof s === "object") setSettings(s);
+      }
+    } catch {}
+    try {
+      const result = await window.storage.get(STORAGE_KEY);
+      if (result && result.value) {
+        const saved = JSON.parse(result.value);
+        if (Array.isArray(saved) && saved.length > 0 && saved[0].date) {
+          setTrades(saved);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (e) { /* no saved data */ }
+    setTrades([]);
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => { loadTrades(); }, []);
+
+  // Save to storage
+  const saveTrades = useCallback(async (data) => {
+    try {
+      await window.storage.set(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) { console.error("保存失敗:", e); }
+  }, []);
+
+  const handleFile = useCallback((file) => {
+    if (!file) return;
+    const tryParse = async (text) => {
+      const parsed = parseCSV(text);
+      if (!parsed.length) {
+        alert("CSVの解析に失敗しました。\n対応: 証券会社の取引履歴CSV（Shift-JIS/UTF-8）");
+        return;
+      }
+      // Load current saved trades (not sample data)
+      let existing = [];
+      try {
+        const result = await window.storage.get(STORAGE_KEY);
+        if (result && result.value) {
+          const saved = JSON.parse(result.value);
+          if (Array.isArray(saved)) existing = saved;
+        }
+      } catch {}
+
+      const { merged, added, total, dupes } = mergeAndDedupe(existing, parsed);
+      setTrades(merged);
+      await saveTrades(merged);
+      setImportMsg({ added, dupes, total });
+      setTimeout(() => setImportMsg(null), 4000);
+    };
+    const reader = new FileReader();
+    reader.onload = (e) => tryParse(e.target.result);
+    reader.readAsText(file, "Shift-JIS");
+  }, [saveTrades]);
+
+  const handleExport = useCallback(() => {
+    if (!trades.length) return;
+    const header = "date,time,pair,direction,lots,entryPrice,exitPrice,pnl,pips";
+    const rows = trades.map(t =>
+      [t.date, t.time, t.pair, t.direction, t.lots, t.entryPrice, t.exitPrice, t.pnl, t.pips].join(",")
+    );
+    const csv = [header, ...rows].join("\n");
+    // テキストエリアにコピーして表示
+    setExportCsv(csv);
+  }, [trades]);
+
+  const handleClearData = useCallback(() => {
+    setShowConfirm(true);
+  }, []);
+
+  const doDelete = useCallback(async () => {
+    setShowConfirm(false);
+    try {
+      // List all keys first
+      const listed = await window.storage.list();
+      const allKeys = listed?.keys || [];
+      // Delete each key
+      for (const k of allKeys) {
+        try { await window.storage.delete(k); } catch(e) {}
+      }
+      // Also explicitly delete our key
+      try { await window.storage.delete(STORAGE_KEY); } catch(e) {}
+      try { await window.storage.delete("fxjournal_settings_v1"); } catch(e) {}
+    } catch (e) {}
+    setTrades([]);
+    setSettings({});
+    setImportMsg(null);
+  }, []);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  }, [handleFile]);
+
+  const downloadTemplate = () => {
+    const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "trade_template.csv";
+    a.click();
+  };
+
+  const hasSavedData = trades.length > 0;
+
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  const tabs = [
+    { id: "calendar",   icon: "📅", label: "カレンダー" },
+    { id: "equity",     icon: "📈", label: "損益曲線" },
+    { id: "hourly",     icon: "🕐", label: "時間帯" },
+    { id: "violations", icon: "⚠️", label: "ルール違反" },
+    { id: "pair",       icon: "💱", label: "通貨ペア" },
+    { id: "list",       icon: "📋", label: "履歴" },
+    { id: "settings",   icon: "⚙️", label: "設定" },
+  ];
+
+  const THEMES = {
+    dark: {
+      bg: "#0d0d1a",
+      surface: "rgba(255,255,255,0.04)",
+      border: "rgba(255,255,255,0.08)",
+      borderStrong: "rgba(255,255,255,0.15)",
+      text: "#e8e0d5",
+      textSub: "#aaa",
+      textMuted: "#777",
+      textFaint: "#555",
+      tabActive: "rgba(0,229,160,0.15)",
+      tabActiveBorder: "rgba(0,229,160,0.4)",
+      tabActiveText: "#00e5a0",
+      tabInactive: "rgba(255,255,255,0.04)",
+      tabInactiveBorder: "rgba(255,255,255,0.07)",
+      tabInactiveText: "#777",
+      inputBg: "rgba(255,255,255,0.06)",
+      inputBorder: "rgba(255,255,255,0.12)",
+      sectionBg: "rgba(255,255,255,0.02)",
+      sectionBorder: "rgba(255,255,255,0.06)",
+      positive: "#00e5a0",
+      negative: "#ff4d6d",
+      tooltipBg: "#1a1a2e",
+      tooltipBorder: "rgba(255,255,255,0.15)",
+      chartGrid: "rgba(255,255,255,0.05)",
+      chartTick: "#555",
+      navBtn: { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#aaa" },
+    },
+    light: {
+      bg: "#f4f6f9",
+      surface: "rgba(0,0,0,0.03)",
+      border: "rgba(0,0,0,0.09)",
+      borderStrong: "rgba(0,0,0,0.2)",
+      text: "#1a1a2e",
+      textSub: "#444",
+      textMuted: "#666",
+      textFaint: "#999",
+      tabActive: "rgba(0,130,90,0.1)",
+      tabActiveBorder: "rgba(0,130,90,0.45)",
+      tabActiveText: "#00825a",
+      tabInactive: "rgba(0,0,0,0.03)",
+      tabInactiveBorder: "rgba(0,0,0,0.08)",
+      tabInactiveText: "#888",
+      inputBg: "rgba(0,0,0,0.04)",
+      inputBorder: "rgba(0,0,0,0.15)",
+      sectionBg: "rgba(0,0,0,0.02)",
+      sectionBorder: "rgba(0,0,0,0.07)",
+      positive: "#006644",
+      negative: "#d93025",
+      tooltipBg: "#ffffff",
+      tooltipBorder: "rgba(0,0,0,0.12)",
+      chartGrid: "rgba(0,0,0,0.06)",
+      chartTick: "#999",
+      navBtn: { background: "rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.12)", color: "#666" },
+    },
+    cyber: {
+      // ミッドナイトディープブルー × フューチャーブルー × サイバー・ミント / オフホワイト文字
+      bg: "#090e1a",
+      surface: "rgba(30,60,120,0.18)",
+      border: "rgba(60,130,255,0.15)",
+      borderStrong: "rgba(60,130,255,0.35)",
+      text: "#e8eef8",
+      textSub: "#8aaad8",
+      textMuted: "#5577aa",
+      textFaint: "#3a5580",
+      tabActive: "rgba(0,210,200,0.15)",
+      tabActiveBorder: "rgba(0,210,200,0.5)",
+      tabActiveText: "#00d4c8",
+      tabInactive: "rgba(30,60,120,0.15)",
+      tabInactiveBorder: "rgba(60,130,255,0.12)",
+      tabInactiveText: "#5577aa",
+      inputBg: "rgba(30,60,120,0.25)",
+      inputBorder: "rgba(60,130,255,0.25)",
+      sectionBg: "rgba(15,30,70,0.6)",
+      sectionBorder: "rgba(60,130,255,0.12)",
+      positive: "#00d4c8",
+      negative: "#ff4d7a",
+      tooltipBg: "#0d1a35",
+      tooltipBorder: "rgba(60,130,255,0.3)",
+      chartGrid: "rgba(60,130,255,0.07)",
+      chartTick: "#3a5580",
+      navBtn: { background: "rgba(30,60,120,0.3)", border: "1px solid rgba(60,130,255,0.2)", color: "#8aaad8" },
+    },
+  };
+  const T = THEMES[theme] || THEMES.dark;
+
+  return (
+    <ThemeContext.Provider value={{...T, theme}}>
+    <div style={{
+      minHeight: "100vh",
+      background: theme === "cyber"
+        ? "linear-gradient(160deg, #060c18 0%, #090e1a 40%, #071020 100%)"
+        : T.bg,
+      color: T.text,
+      fontFamily: "'DM Mono', 'Courier New', monospace",
+      fontSize: 15,
+      padding: "0 0 60px 0",
+      transition: "background 0.3s, color 0.3s",
+    }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet" />
+
+      {/* Top Bar */}
+      <div style={{
+        background: T.sectionBg,
+        borderBottom: `1px solid ${T.border}`,
+        padding: "16px 24px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        position: "sticky", top: 0, zIndex: 100, backdropFilter: "blur(12px)",
+      }}>
+        <div style={{ minWidth: 0, flex: 1, marginRight: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <FxMateIcon size={32} theme={theme} />
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: -0.5, lineHeight: 1 }}>
+                <span style={{ color: T.positive, textShadow: theme === "cyber" ? `0 0 20px ${T.positive}88` : "none" }}>FX</span>
+                <span style={{ color: T.text }}>MATE</span>
+              </div>
+              <div style={{ fontSize: 11, color: T.textFaint, letterSpacing: 1, marginTop: 1 }}>your trade companion</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: T.textFaint, marginTop: 2 }}>
+            {isLoading ? "読み込み中..." : trades.length === 0 ? "CSVを読み込んでください" : `${trades.length}件のトレードを記録中`}
+          </div>
+        </div>
+
+        {/* Upload */}
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button onClick={handleClearData} style={{
+            background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
+            color: "#ff4d6d", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15,
+            whiteSpace: "nowrap", flexShrink: 0,
+          }}>データ削除</button>
+
+          <label style={{
+            background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
+            color: "#00e5a0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 15, fontWeight: 700,
+            whiteSpace: "nowrap", flexShrink: 0, display: "inline-block",
+          }}>
+            CSV読込
+            <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+          </label>
+        </div>
+      </div>
+
+      {/* Import Result Toast */}
+      {importMsg && (
+        <div style={{
+          position: "fixed", bottom: 24, right: 24, zIndex: 300,
+          background: "#1a2a1a", border: "1px solid rgba(0,229,160,0.4)",
+          borderRadius: 10, padding: "14px 20px", fontSize: 15,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+          animation: "fadeIn 0.3s ease",
+        }}>
+          <div style={{ color: "#00e5a0", fontWeight: 700, marginBottom: 4 }}>✓ インポート完了</div>
+          <div style={{ color: "#aaa" }}>新規追加: <span style={{ color: "#e8e0d5" }}>{importMsg.added}件</span></div>
+          <div style={{ color: "#aaa" }}>重複スキップ: <span style={{ color: "#666" }}>{importMsg.dupes}件</span></div>
+          <div style={{ color: "#aaa" }}>累計保存: <span style={{ color: "#e8e0d5" }}>{importMsg.total}件</span></div>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {showConfirm && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 400,
+          background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "#13131f", border: "1px solid rgba(255,77,109,0.3)",
+            borderRadius: 14, padding: 28, width: 300, textAlign: "center",
+          }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#e8e0d5", marginBottom: 8 }}>データを削除しますか？</div>
+            <div style={{ fontSize: 14, color: "#666", marginBottom: 24 }}>保存されたトレードデータがすべて消えます。</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button onClick={() => setShowConfirm(false)} style={{
+                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                color: "#888", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 15,
+              }}>キャンセル</button>
+              <button onClick={doDelete} style={{
+                background: "rgba(255,77,109,0.15)", border: "1px solid rgba(255,77,109,0.4)",
+                color: "#ff4d6d", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 15, fontWeight: 700,
+              }}>削除する</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Modal */}
+      {exportCsv && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 400,
+          background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16,
+        }}>
+          <div style={{
+            background: T.sectionBg || "#13131f", border: `1px solid ${T.border}`,
+            borderRadius: 14, padding: 24, width: "100%", maxWidth: 560,
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 8 }}>CSVエクスポート</div>
+            <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 12 }}>
+              以下のテキストをすべて選択してコピーし、テキストエディタに貼り付けて .csv として保存してください。
+            </div>
+            <textarea
+              readOnly
+              value={exportCsv}
+              onClick={e => e.target.select()}
+              style={{
+                width: "100%", height: 200, background: T.inputBg,
+                border: `1px solid ${T.border}`, borderRadius: 8,
+                color: T.text, fontSize: 12, padding: 10,
+                fontFamily: "monospace", resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
+              <button onClick={() => {
+                navigator.clipboard?.writeText(exportCsv).catch(() => {});
+              }} style={{
+                background: "rgba(100,160,255,0.15)", border: "1px solid rgba(100,160,255,0.3)",
+                color: "#6fa0ff", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 14, fontWeight: 600,
+              }}>クリップボードにコピー</button>
+              <button onClick={() => setExportCsv(null)} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                color: T.textSub, borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 14,
+              }}>閉じる</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drop Zone Overlay */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        style={{
+          position: "fixed", inset: 0, zIndex: dragging ? 200 : -1,
+          background: "rgba(0,229,160,0.08)", border: "2px dashed #00e5a0",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          opacity: dragging ? 1 : 0, transition: "opacity 0.2s",
+          pointerEvents: dragging ? "all" : "none",
+        }}>
+        <div style={{ fontSize: 24, color: "#00e5a0", fontWeight: 700 }}>CSVをドロップ</div>
+      </div>
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 16px" }}>
+
+        {/* Empty State */}
+        {!isLoading && trades.length === 0 && (
+          <div style={{
+            textAlign: "center", padding: "80px 20px",
+            border: "2px dashed rgba(255,255,255,0.08)", borderRadius: 16, marginBottom: 24,
+          }}>
+            <div style={{ fontSize: 40, marginBottom: 16 }}>📂</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#e8e0d5", marginBottom: 8 }}>
+              トレードデータがありません
+            </div>
+            <div style={{ fontSize: 15, color: "#555", marginBottom: 24 }}>
+              証券会社からダウンロードしたCSVを読み込んでください
+            </div>
+            <label style={{
+              background: "rgba(0,229,160,0.12)", border: "1px solid rgba(0,229,160,0.3)",
+              color: "#00e5a0", borderRadius: 8, padding: "10px 24px",
+              cursor: "pointer", fontSize: 15, fontWeight: 700,
+            }}>
+              CSVを読み込む
+              <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+            </label>
+          </div>
+        )}
+
+        {/* Quick Stats */}
+        <Section title="サマリー">
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+            <button onClick={() => {
+              const [y, m] = selectedMonth.split("-").map(Number);
+              const d = new Date(y, m - 2, 1);
+              setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+            }} style={{...navBtn, ...T.navBtn}}>‹</button>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, minWidth: 100, textAlign: "center" }}>
+              {selectedMonth.replace("-", "年")}月
+            </div>
+            <button onClick={() => {
+              const [y, m] = selectedMonth.split("-").map(Number);
+              const d = new Date(y, m, 1);
+              setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+            }} style={{...navBtn, ...T.navBtn}}>›</button>
+          </div>
+          <StatsCards trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+        </Section>
+
+        {trades.length > 0 && <>
+        {/* Tab Nav */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 20, overflowX: "auto", paddingBottom: 4 }}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              background: activeTab === t.id ? T.tabActive : T.tabInactive,
+              border: activeTab === t.id ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.tabInactiveBorder}`,
+              color: activeTab === t.id ? T.tabActiveText : T.tabInactiveText,
+              boxShadow: activeTab === t.id && theme === "cyber" ? `0 0 12px ${T.tabActiveText}44` : "none",
+              borderRadius: 10, padding: "8px 10px", cursor: "pointer",
+              whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace",
+              fontWeight: activeTab === t.id ? 700 : 400,
+              transition: "all 0.15s",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+              minWidth: 52,
+            }}>
+              <TabIcon id={t.id} active={activeTab === t.id} color={T.tabActiveText} size={22} />
+              <span style={{ fontSize: 10 }}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === "calendar" && (
+          <Section title="損益カレンダー">
+            <CalendarView trades={trades} onMonthChange={setSelectedMonth} calendarUnit={calendarUnit} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} selectedMonth={selectedMonth} />
+          </Section>
+        )}
+
+        {activeTab === "violations" && (
+          <Section title="ルール違反（日単位）">
+            <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 16 }}>
+              {selectedMonth.replace("-", "年")}月
+            </div>
+            <ViolationTable trades={trades} monthKey={selectedMonth} violThreshold={violThreshold} onDrillDown={(date) => {
+              setListFilter({ date, violationOnly: true });
+              setActiveTab("list");
+            }} />
+          </Section>
+        )}
+        {activeTab === "equity" && (
+          <Section title="損益曲線">
+            <EquityCurve trades={trades} monthKey={selectedMonth} />
+          </Section>
+        )}
+        {activeTab === "hourly" && (
+          <Section title="時間帯別分析">
+            <HourlyAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          </Section>
+        )}
+        {activeTab === "pair" && (
+          <Section title="通貨ペア別パフォーマンス">
+            <PairAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          </Section>
+        )}
+        {activeTab === "list" && (
+          <Section title="トレード履歴">
+            <TradeList trades={trades} monthKey={selectedMonth} listFilter={listFilter} setListFilter={setListFilter} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} />
+          </Section>
+        )}
+        {activeTab === "settings" && (
+          <Section title="設定">
+            <div style={{ display: "flex", flexDirection: "column", gap: 28, maxWidth: 420 }}>
+
+              {/* ルール違反閾値 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>ルール違反の閾値（pips）</div>
+                <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 10 }}>この値以下の損切りをルール違反と判定します</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <input type="number" step="0.5" value={violThreshold}
+                    onChange={e => saveSettings({ ...settings, violThreshold: parseFloat(e.target.value) })}
+                    style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                      color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
+                  <span style={{ color: T.textFaint, fontSize: 14 }}>pips</span>
+                  <button onClick={() => saveSettings({ ...settings, violThreshold: -6.0 })}
+                    style={{ background: T.surface, border: `1px solid ${T.border}`,
+                      color: T.textMuted, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>リセット</button>
+                </div>
+              </div>
+
+              {/* 勝ち負け判定閾値 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 12 }}>勝ち負け判定の閾値（pips）</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 13, color: "#00e5a0", width: 32 }}>勝ち</span>
+                    <input type="number" step="0.1" min="0" value={winThreshold}
+                      onChange={e => saveSettings({ ...settings, winThreshold: parseFloat(e.target.value) })}
+                      style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                        color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
+                    <span style={{ color: "#555", fontSize: 14 }}>pips 以上</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 13, color: "#ff4d6d", width: 32 }}>負け</span>
+                    <input type="number" step="0.1" min="0" value={lossThreshold}
+                      onChange={e => saveSettings({ ...settings, lossThreshold: parseFloat(e.target.value) })}
+                      style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                        color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
+                    <span style={{ color: "#555", fontSize: 14 }}>pips 以上</span>
+                  </div>
+                  <div>
+                    <button onClick={() => saveSettings({ ...settings, winThreshold: 0.0, lossThreshold: 0.0 })}
+                      style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                        color: "#666", borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>リセット</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* テーマ */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>テーマ</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  {[["dark", "🌙 ダーク"], ["light", "☀️ ライト"], ["cyber", "⚡ サイバー"]].map(([val, label]) => (
+                    <button key={val} onClick={() => saveSettings({ ...settings, theme: val })}
+                      style={{ padding: "8px 20px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600,
+                        border: theme === val ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.border}`,
+                        background: theme === val ? T.tabActive : T.surface,
+                        color: theme === val ? T.tabActiveText : T.textMuted }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* データエクスポート */}
+              <ExportPanel trades={trades} T={T} />
+
+              {/* カレンダー表示単位 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>カレンダーの損益表示単位</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  {[["pnl", "円（¥）"], ["pips", "pips"]].map(([val, label]) => (
+                    <button key={val} onClick={() => saveSettings({ ...settings, calendarUnit: val })}
+                      style={{ padding: "8px 20px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600,
+                        border: calendarUnit === val ? "1px solid #00e5a0" : "1px solid rgba(255,255,255,0.1)",
+                        background: calendarUnit === val ? "rgba(0,229,160,0.12)" : "rgba(255,255,255,0.04)",
+                        color: calendarUnit === val ? "#00e5a0" : "#666" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </Section>
+        )}
+        </>}
+      </div>
+    </div>
+    </ThemeContext.Provider>
+  );
+}
+
+
+    >
