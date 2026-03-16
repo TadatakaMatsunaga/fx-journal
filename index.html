@@ -1103,11 +1103,12 @@ function HourlyAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 
           <XAxis dataKey="label" tick={{ fill: "#555", fontSize: 15 }} interval={1} />
           <YAxis tickFormatter={v => (v / 1000).toFixed(0) + "K"} tick={{ fill: "#555", fontSize: 14 }} width={38} />
           <Tooltip
+            cursor={{ fill: "rgba(255,255,255,0.06)" }}
             content={({ active, payload, label }) => {
               if (!active || !payload || !payload.length) return null;
               return (
-                <div style={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, padding: "8px 12px", fontSize: 14 }}>
-                  <div style={{ color: "#aaa", marginBottom: 4 }}>{label}</div>
+                <div style={{ background: T.tooltipBg, border: `1px solid ${T.tooltipBorder}`, borderRadius: 8, padding: "8px 12px", fontSize: 14 }}>
+                  <div style={{ color: T.textSub, marginBottom: 4 }}>{label}</div>
                   <div style={{ color: pnlColor(payload[0].value, T), fontWeight: 700 }}>{fmt(payload[0].value)}</div>
                 </div>
               );
