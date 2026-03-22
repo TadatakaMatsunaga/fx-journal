@@ -96,7 +96,7 @@
           const table = key.includes("settings") ? "settings" : "trades";
           try {
             const data = await supabaseRequest("GET",
-              `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}&select=data`,
+              `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}&select=data&order=updated_at.desc&limit=1`,
               undefined, accessToken);
             if (!data || !data.length) throw new Error("not found");
             const value = typeof data[0].data === "string" ? data[0].data : JSON.stringify(data[0].data);
@@ -110,23 +110,24 @@
           const table = key.includes("settings") ? "settings" : "trades";
           const parsed = (() => { try { return JSON.parse(value); } catch { return value; } })();
           const baseUrl = SUPABASE_URL + `/rest/v1/${table}`;
-          const headers = {
+          const authHeaders = {
             "Content-Type": "application/json",
             "apikey": SUPABASE_KEY,
             "Authorization": "Bearer " + accessToken,
-            "Prefer": "resolution=merge-duplicates,return=minimal",
+            "Prefer": "return=minimal",
           };
-          // UPSERT: user_idがあれば更新、なければ挿入
-          const body = JSON.stringify({
-            user_id: userId,
-            data: parsed,
-            updated_at: new Date().toISOString()
-          });
-          const res = await fetch(baseUrl, {
-            method: "POST", headers, body,
-          });
+          const body = JSON.stringify({ user_id: userId, data: parsed, updated_at: new Date().toISOString() });
+
+          // まず全削除（重複排除のため）
+          await fetch(baseUrl + `?user_id=eq.${encodeURIComponent(userId)}`,
+            { method: "DELETE", headers: authHeaders }
+          );
+
+          // 新規INSERT
+          const res = await fetch(baseUrl, { method: "POST", headers: authHeaders, body });
           if (!res.ok) {
             const errText = await res.text();
+            console.error("Storage set failed:", errText);
             throw new Error(errText);
           }
           return { key, value };
@@ -2007,19 +2008,28 @@ function App({ onLogout, userEmail }) {
       try {
         const result = await window.storage.get(STORAGE_KEY);
         if (result && result.value) {
-          const saved = JSON.parse(result.value);
-          if (Array.isArray(saved)) existing = saved;
+          // jsonb型で返る場合はすでにオブジェクトの可能性がある
+          const saved = typeof result.value === "string" ? JSON.parse(result.value) : result.value;
+          if (Array.isArray(saved)) {
+            existing = saved;
+            console.log("既存データ読み込み成功:", existing.length, "件");
+          } else {
+            console.warn("既存データが配列でない:", typeof saved, saved);
+          }
         }
       } catch(e) {
-        // データなし（初回）は正常、それ以外はエラー表示
         if (!e.message?.includes("not found")) {
           console.error("既存データ読み込み失敗:", e);
           alert("既存データの読み込みに失敗しました。\n" + e.message);
           return;
+        } else {
+          console.log("既存データなし（初回）");
         }
       }
 
+      console.log("マージ前: existing=", existing.length, "parsed=", parsed.length);
       const { merged, added, updated, total } = mergeAndDedupe(existing, parsed);
+      console.log("マージ後:", merged.length, "件 (追加:", added, "更新:", updated, ")");
       setTrades(merged);
       await saveTrades(merged);
       setImportMsg({ added, updated, total });
