@@ -691,7 +691,7 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
   return (
     <div style={{ fontFamily: "'DM Mono', monospace" }}>
       {selectedDay && (
-        <DayModal date={selectedDay} trades={enrichedTrades} onClose={() => setSelectedDay(null)} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+        <DayModal date={selectedDay} trades={trades} onClose={() => setSelectedDay(null)} winThreshold={winThreshold} lossThreshold={lossThreshold} />
       )}
 
       {/* Header */}
@@ -2403,7 +2403,7 @@ function App({ onLogout, userEmail }) {
               setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
             }} style={{...navBtn, ...T.navBtn}}>›</button>
           </div>
-          <StatsCards trades={enrichedTrades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          <StatsCards trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
         </Section>
 
         {trades.length > 0 && <>
@@ -2431,7 +2431,7 @@ function App({ onLogout, userEmail }) {
         {/* Tab Content */}
         {activeTab === "calendar" && (
           <Section title="損益カレンダー">
-            <CalendarView trades={enrichedTrades} onMonthChange={setSelectedMonth} calendarUnit={calendarUnit} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} selectedMonth={selectedMonth} />
+            <CalendarView trades={trades} onMonthChange={setSelectedMonth} calendarUnit={calendarUnit} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} selectedMonth={selectedMonth} />
           </Section>
         )}
 
@@ -2440,7 +2440,7 @@ function App({ onLogout, userEmail }) {
             <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 16 }}>
               {selectedMonth.replace("-", "年")}月
             </div>
-            <ViolationTable trades={enrichedTrades} monthKey={selectedMonth} violThreshold={violThreshold} onDrillDown={(date) => {
+            <ViolationTable trades={trades} monthKey={selectedMonth} violThreshold={violThreshold} onDrillDown={(date) => {
               setListFilter({ date, violationOnly: true });
               setActiveTab("list");
             }} />
@@ -2448,32 +2448,32 @@ function App({ onLogout, userEmail }) {
         )}
         {activeTab === "equity" && (
           <Section title="損益曲線">
-            <EquityCurve trades={enrichedTrades} monthKey={selectedMonth} />
+            <EquityCurve trades={trades} monthKey={selectedMonth} />
           </Section>
         )}
         {activeTab === "hourly" && (
           <Section title="時間帯別分析">
-            <HourlyAnalysis trades={enrichedTrades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <HourlyAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "yearly" && (
           <Section title="年次集計">
-            <YearlySummary trades={enrichedTrades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <YearlySummary trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "analytics" && (
           <Section title="分析">
-            <Analytics trades={enrichedTrades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <Analytics trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "pair" && (
           <Section title="通貨ペア別パフォーマンス">
-            <PairAnalysis trades={enrichedTrades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <PairAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "list" && (
           <Section title="トレード履歴">
-            <TradeList trades={enrichedTrades} monthKey={selectedMonth} listFilter={listFilter} setListFilter={setListFilter} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} />
+            <TradeList trades={trades} monthKey={selectedMonth} listFilter={listFilter} setListFilter={setListFilter} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} />
           </Section>
         )}
         {activeTab === "settings" && (
@@ -2541,7 +2541,7 @@ function App({ onLogout, userEmail }) {
               </div>
 
               {/* データエクスポート */}
-              <ExportPanel trades={enrichedTrades} T={T} />
+              <ExportPanel trades={trades} T={T} />
 
               {/* カレンダー表示単位 */}
               <div>
