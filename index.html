@@ -1495,6 +1495,17 @@ function TabIcon({ id, active, color, size = 24 }) {
         <circle cx="18" cy="17" r="1.5" fill={pink}/>
       </svg>
     ),
+    yearly: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <rect x="3" y="4" width="18" height="17" rx="3" stroke={stroke} strokeWidth="1.5"/>
+        <path d="M3 9h18" stroke={stroke} strokeWidth="1.5"/>
+        <line x1="8" y1="2" x2="8" y2="6" stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="16" y1="2" x2="16" y2="6" stroke={stroke} strokeWidth="1.5" strokeLinecap="round"/>
+        <path d="M7 14h3v4H7z" fill={teal} opacity="0.8"/>
+        <path d="M11 12h3v6h-3z" fill={teal}/>
+        <path d="M15 15h3v3h-3z" fill={pink} opacity="0.8"/>
+      </svg>
+    ),
     analytics: (
       <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
         <rect x="3" y="3" width="18" height="18" rx="3" stroke={stroke} strokeWidth="1.5"/>
@@ -1741,6 +1752,137 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
   );
 }
 
+
+// ── Yearly Summary ────────────────────────────────────────────────────────
+function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+
+  const yearlyData = useMemo(() => {
+    const map = {};
+    trades.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      const year = td.slice(0, 4);
+      if (!map[year]) map[year] = { year, pnl: 0, pips: 0, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0 };
+      map[year].pnl += t.pnl;
+      map[year].pips += t.pips;
+      const r = tradeResult(t, winThreshold, lossThreshold);
+      if (r === "win") { map[year].wins++; map[year].winPips += t.pips; }
+      else if (r === "loss") { map[year].losses++; map[year].lossPips += t.pips; }
+      else map[year].draws++;
+    });
+    return Object.values(map).sort((a, b) => b.year - a.year).map(y => {
+      const decided = y.wins + y.losses;
+      return {
+        ...y,
+        count: y.wins + y.losses + y.draws,
+        winRate: decided ? (y.wins / decided * 100).toFixed(1) : "—",
+        avgWinPips: y.wins ? (y.winPips / y.wins).toFixed(2) : "—",
+        avgLossPips: y.losses ? (y.lossPips / y.losses).toFixed(2) : "—",
+      };
+    });
+  }, [trades, winThreshold, lossThreshold]);
+
+  // 累計損益曲線データ（月次）
+  const curveData = useMemo(() => {
+    const sorted = [...trades].sort((a, b) => new Date(a.date + "T" + a.time) - new Date(b.date + "T" + b.time));
+    let cum = 0;
+    return sorted.map((t, i) => { cum += t.pnl; return { idx: i, pnl: cum, date: getTradingDate(t.date, t.time) }; });
+  }, [trades]);
+
+  // 年境界のtick
+  const yearTicks = useMemo(() => {
+    const seen = new Set();
+    return curveData.filter(d => {
+      const y = d.date.slice(0,4);
+      if (!seen.has(y)) { seen.add(y); return true; }
+      return false;
+    }).map(d => ({ idx: d.idx, label: d.date.slice(0,4) }));
+  }, [curveData]);
+
+  // 合計行
+  const total = useMemo(() => {
+    const allWins = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
+    const allLosses = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
+    const allDraws = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
+    const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
+    const totalPips = trades.reduce((s, t) => s + t.pips, 0);
+    const decided = allWins.length + allLosses.length;
+    return {
+      pnl: totalPnl, pips: totalPips,
+      wins: allWins.length, losses: allLosses.length, draws: allDraws.length,
+      count: trades.length,
+      winRate: decided ? (allWins.length / decided * 100).toFixed(1) : "—",
+      avgWinPips: allWins.length ? (allWins.reduce((s,t) => s+t.pips,0) / allWins.length).toFixed(2) : "—",
+      avgLossPips: allLosses.length ? (allLosses.reduce((s,t) => s+t.pips,0) / allLosses.length).toFixed(2) : "—",
+    };
+  }, [trades, winThreshold, lossThreshold]);
+
+  if (!yearlyData.length) return <div style={{ color: T.textFaint, fontSize: 14 }}>データがありません</div>;
+
+  const tickIndices = yearTicks.map(d => d.idx);
+  const tickMap = Object.fromEntries(yearTicks.map(d => [d.idx, d.label]));
+  const finalPnl = curveData.length ? curveData[curveData.length-1].pnl : 0;
+
+  return (
+    <div>
+      {/* 累計損益曲線 */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 6 }}>累計損益（全期間）</div>
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={curveData}>
+            <defs>
+              <linearGradient id="yearGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={finalPnl >= 0 ? T.positive : T.negative} stopOpacity={0.3}/>
+                <stop offset="95%" stopColor={finalPnl >= 0 ? T.positive : T.negative} stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={T.chartGrid}/>
+            <XAxis dataKey="idx" type="number" domain={[0, curveData.length-1]}
+              ticks={tickIndices} tickFormatter={v => tickMap[v] || ""}
+              tick={{ fill: T.chartTick, fontSize: 12 }} height={28}/>
+            <YAxis tickFormatter={v => (v/1000).toFixed(0)+"K"} tick={{ fill: T.chartTick, fontSize: 12 }} width={44}/>
+            <Tooltip content={({ active, payload }) => {
+              if (!active || !payload?.length) return null;
+              return (
+                <div style={{ background: T.tooltipBg, border: `1px solid ${T.tooltipBorder}`, borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+                  <div style={{ color: T.textSub, marginBottom: 2 }}>{payload[0].payload.date}</div>
+                  <div style={{ color: pnlColor(payload[0].value, T), fontWeight: 700 }}>{fmt(payload[0].value)}</div>
+                </div>
+              );
+            }}/>
+            <Area type="monotone" dataKey="pnl" stroke={finalPnl >= 0 ? T.positive : T.negative} strokeWidth={1.5} fill="url(#yearGrad)" dot={false}/>
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Yearly table */}
+      <div style={{ display: "grid", gridTemplateColumns: "52px 1fr 72px 52px 60px 60px", gap: 0 }}>
+        {["年", "損益(円)", "pips", "件数", "勝均pips", "負均pips"].map((h, i) => (
+          <div key={h} style={{ fontSize: 11, color: T.textMuted, padding: "5px 6px",
+            textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
+        ))}
+        {yearlyData.map(y => [
+          <div key={y.year+"y"} style={{ padding:"8px 6px", fontSize:14, color:T.text, borderBottom:`1px solid ${T.border}` }}>{y.year}</div>,
+          <div key={y.year+"p"} style={{ padding:"8px 6px", fontSize:14, fontWeight:700, textAlign:"right", color:pnlColor(y.pnl,T), borderBottom:`1px solid ${T.border}` }}>{fmt(y.pnl)}</div>,
+          <div key={y.year+"pp"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:pnlColor(y.pips,T), borderBottom:`1px solid ${T.border}` }}>{(y.pips>=0?"+":"") + y.pips.toFixed(1)}</div>,
+          <div key={y.year+"c"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.textSub, borderBottom:`1px solid ${T.border}` }}>{y.count}</div>,
+          <div key={y.year+"w"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.positive, borderBottom:`1px solid ${T.border}` }}>{y.avgWinPips !== "—" ? "+" + y.avgWinPips : "—"}</div>,
+          <div key={y.year+"l"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.negative, borderBottom:`1px solid ${T.border}` }}>{y.avgLossPips}</div>,
+        ])}
+        {/* 合計行 */}
+        {[
+          <div key="total-y" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, color:T.text, borderTop:`2px solid ${T.borderStrong}` }}>合計</div>,
+          <div key="total-p" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, textAlign:"right", color:pnlColor(total.pnl,T), borderTop:`2px solid ${T.borderStrong}` }}>{fmt(total.pnl)}</div>,
+          <div key="total-pp" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, textAlign:"right", color:pnlColor(total.pips,T), borderTop:`2px solid ${T.borderStrong}` }}>{(total.pips>=0?"+":"") + total.pips.toFixed(1)}</div>,
+          <div key="total-c" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.textSub, borderTop:`2px solid ${T.borderStrong}` }}>{total.count}</div>,
+          <div key="total-w" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.positive, borderTop:`2px solid ${T.borderStrong}` }}>{total.avgWinPips !== "—" ? "+" + total.avgWinPips : "—"}</div>,
+          <div key="total-l" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.negative, borderTop:`2px solid ${T.borderStrong}` }}>{total.avgLossPips}</div>,
+        ]}
+      </div>
+    </div>
+  );
+}
+
 // ── Export Panel ───────────────────────────────────────────────────────────
 function ExportPanel({ trades, T }) {
   const [showCsv, setShowCsv] = useState(false);
@@ -1948,6 +2090,7 @@ function App({ onLogout, userEmail }) {
     { id: "pair",       icon: "💱", label: "通貨ペア" },
     { id: "list",       icon: "📋", label: "履歴" },
     { id: "analytics",  icon: "🔬", label: "分析" },
+    { id: "yearly",     icon: "📆", label: "年次" },
     { id: "settings",   icon: "⚙️", label: "設定" },
   ];
 
@@ -2214,14 +2357,34 @@ function App({ onLogout, userEmail }) {
 
         {/* Quick Stats */}
         <Section title="サマリー">
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
             <button onClick={() => {
               const [y, m] = selectedMonth.split("-").map(Number);
               const d = new Date(y, m - 2, 1);
               setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
             }} style={{...navBtn, ...T.navBtn}}>‹</button>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, minWidth: 100, textAlign: "center" }}>
-              {selectedMonth.replace("-", "年")}月
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <select
+                value={selectedMonth.split("-")[0]}
+                onChange={e => setSelectedMonth(`${e.target.value}-${selectedMonth.split("-")[1]}`)}
+                style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
+                  borderRadius: 6, padding: "4px 8px", fontSize: 15, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "'DM Mono', monospace" }}>
+                {(() => {
+                  const years = [...new Set(trades.map(t => getTradingDate(t.date, t.time).slice(0,4)))].sort().reverse();
+                  return years.map(y => <option key={y} value={y}>{y}年</option>);
+                })()}
+              </select>
+              <select
+                value={selectedMonth.split("-")[1]}
+                onChange={e => setSelectedMonth(`${selectedMonth.split("-")[0]}-${e.target.value}`)}
+                style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
+                  borderRadius: 6, padding: "4px 8px", fontSize: 15, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "'DM Mono', monospace" }}>
+                {Array.from({length:12}, (_,i) => String(i+1).padStart(2,"0")).map(m => (
+                  <option key={m} value={m}>{parseInt(m)}月</option>
+                ))}
+              </select>
             </div>
             <button onClick={() => {
               const [y, m] = selectedMonth.split("-").map(Number);
@@ -2280,6 +2443,11 @@ function App({ onLogout, userEmail }) {
         {activeTab === "hourly" && (
           <Section title="時間帯別分析">
             <HourlyAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          </Section>
+        )}
+        {activeTab === "yearly" && (
+          <Section title="年次集計">
+            <YearlySummary trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "analytics" && (
