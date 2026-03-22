@@ -95,11 +95,16 @@
         async get(key) {
           const table = key.includes("settings") ? "settings" : "trades";
           try {
+            // チャンク含む全レコードを取得（user_idがuserIdまたはuserId__chunk_Nのもの）
             const data = await supabaseRequest("GET",
-              `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}&select=data`,
+              `/rest/v1/${table}?user_id=like.${encodeURIComponent(userId)}*&select=user_id,data&order=user_id`,
               undefined, accessToken);
             if (!data || !data.length) throw new Error("not found");
-            const value = typeof data[0].data === "string" ? data[0].data : JSON.stringify(data[0].data);
+            // チャンクをマージ
+            const allItems = data.flatMap(row =>
+              Array.isArray(row.data) ? row.data : [row.data]
+            );
+            const value = JSON.stringify(allItems.length === 1 && !Array.isArray(allItems[0]) ? allItems[0] : allItems);
             return { key, value };
           } catch(e) {
             if (e.message && e.message.includes("401")) { clearSession(); window.location.reload(); }
@@ -116,30 +121,37 @@
             "Authorization": "Bearer " + accessToken,
             "Prefer": "return=minimal",
           };
-          const checkRes = await fetch(baseUrl + `?user_id=eq.${encodeURIComponent(userId)}&select=user_id`, {
-            headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + accessToken },
+          // チャンク分割: tradesは1000件ごとに分割して保存
+          const chunks = Array.isArray(parsed) && parsed.length > 1000
+            ? Array.from({ length: Math.ceil(parsed.length / 1000) }, (_, i) => parsed.slice(i * 1000, (i + 1) * 1000))
+            : [parsed];
+
+          // 既存データを削除してから全チャンクをINSERT
+          const delRes = await fetch(baseUrl + `?user_id=eq.${encodeURIComponent(userId)}`, {
+            method: "DELETE", headers,
           });
-          const checkData = await checkRes.json();
-          const exists = checkData && checkData.length > 0;
-          if (exists) {
-            const res = await fetch(baseUrl + `?user_id=eq.${encodeURIComponent(userId)}`, {
-              method: "PATCH", headers,
-              body: JSON.stringify({ data: parsed, updated_at: new Date().toISOString() }),
+
+          for (let i = 0; i < chunks.length; i++) {
+            const chunkKey = chunks.length > 1 ? `${key}_chunk_${i}` : key;
+            const body = JSON.stringify({
+              user_id: chunks.length > 1 ? `${userId}__chunk_${i}` : userId,
+              data: chunks[i],
+              updated_at: new Date().toISOString()
             });
-            if (!res.ok) throw new Error(await res.text());
-          } else {
             const res = await fetch(baseUrl, {
-              method: "POST", headers,
-              body: JSON.stringify({ user_id: userId, data: parsed, updated_at: new Date().toISOString() }),
+              method: "POST", headers, body,
             });
-            if (!res.ok) throw new Error(await res.text());
+            if (!res.ok) {
+              const errText = await res.text();
+              throw new Error(`保存失敗 (chunk ${i}): ${errText}`);
+            }
           }
           return { key, value };
         },
         async delete(key) {
           const table = key.includes("settings") ? "settings" : "trades";
           await supabaseRequest("DELETE",
-            `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}`,
+            `/rest/v1/${table}?user_id=like.${encodeURIComponent(userId)}*`,
             undefined, accessToken);
           return { key, deleted: true };
         },
@@ -1993,7 +2005,10 @@ function App({ onLogout, userEmail }) {
   const saveTrades = useCallback(async (data) => {
     try {
       await window.storage.set(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) { console.error("保存失敗:", e); }
+    } catch (e) {
+      console.error("保存失敗:", e);
+      alert("データの保存に失敗しました。\n" + (e.message || e));
+    }
   }, []);
 
   const handleFile = useCallback((file) => {
@@ -2349,36 +2364,18 @@ function App({ onLogout, userEmail }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
             <button onClick={() => {
               const [y, m] = selectedMonth.split("-").map(Number);
-              const d = new Date(y, m - 2, 1);
-              setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+              const pm = m - 1 === 0 ? 12 : m - 1;
+              const py = m - 1 === 0 ? y - 1 : y;
+              setSelectedMonth(`${py}-${String(pm).padStart(2,"0")}`);
             }} style={{...navBtn, ...T.navBtn}}>‹</button>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <select
-                value={selectedMonth.split("-")[0]}
-                onChange={e => setSelectedMonth(`${e.target.value}-${selectedMonth.split("-")[1]}`)}
-                style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
-                  borderRadius: 6, padding: "4px 8px", fontSize: 15, fontWeight: 700, cursor: "pointer",
-                  fontFamily: "'DM Mono', monospace" }}>
-                {(() => {
-                  const years = [...new Set(trades.map(t => getTradingDate(t.date, t.time).slice(0,4)))].sort().reverse();
-                  return years.map(y => <option key={y} value={y}>{y}年</option>);
-                })()}
-              </select>
-              <select
-                value={selectedMonth.split("-")[1]}
-                onChange={e => setSelectedMonth(`${selectedMonth.split("-")[0]}-${e.target.value}`)}
-                style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
-                  borderRadius: 6, padding: "4px 8px", fontSize: 15, fontWeight: 700, cursor: "pointer",
-                  fontFamily: "'DM Mono', monospace" }}>
-                {Array.from({length:12}, (_,i) => String(i+1).padStart(2,"0")).map(m => (
-                  <option key={m} value={m}>{parseInt(m)}月</option>
-                ))}
-              </select>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, minWidth: 110, textAlign: "center" }}>
+              {selectedMonth.replace("-", "年")}月
             </div>
             <button onClick={() => {
               const [y, m] = selectedMonth.split("-").map(Number);
-              const d = new Date(y, m, 1);
-              setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+              const nm = m + 1 === 13 ? 1 : m + 1;
+              const ny = m + 1 === 13 ? y + 1 : y;
+              setSelectedMonth(`${ny}-${String(nm).padStart(2,"0")}`);
             }} style={{...navBtn, ...T.navBtn}}>›</button>
           </div>
           <StatsCards trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
