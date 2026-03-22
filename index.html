@@ -1638,7 +1638,7 @@ function App({ onLogout, userEmail }) {
         }
       } catch {}
 
-      const { merged, added, total, dupes } = mergeAndDedupe(existing, parsed);
+      const { merged, added, updated, total } = mergeAndDedupe(existing, parsed);
       setTrades(merged);
       await saveTrades(merged);
       setImportMsg({ added, updated, total });
