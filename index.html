@@ -1307,12 +1307,14 @@ function TradeList({ trades, monthKey, listFilter, setListFilter, winThreshold =
               <td style={{ padding: "7px 10px", color: T.textMuted, fontSize: 13, textAlign: "right" }}>
                 {t.holdMin != null ? (() => {
                   const totalSec = Math.round(t.holdMin * 60);
-                  const h = Math.floor(totalSec / 3600);
-                  const m = Math.floor((totalSec % 3600) / 60);
-                  const s = totalSec % 60;
-                  if (h > 0) return `${h}h${m}m${s}s`;
-                  if (m > 0) return `${m}m${s}s`;
-                  return `${s}s`;
+                  const days = Math.floor(totalSec / 86400);
+                  const hrs  = Math.floor((totalSec % 86400) / 3600);
+                  const mins = Math.floor((totalSec % 3600) / 60);
+                  const secs = totalSec % 60;
+                  if (days > 0) return `${days}d${hrs}h${mins}m`;
+                  if (hrs  > 0) return `${hrs}h${mins}m${secs}s`;
+                  if (mins > 0) return `${mins}m${secs}s`;
+                  return `${secs}s`;
                 })() : "—"}
               </td>
               <td style={{ padding: "7px 6px", fontSize: 16, textAlign: "center" }}>
@@ -1383,15 +1385,20 @@ function tradeKey(t) {
 function mergeAndDedupe(existing, incoming) {
   const map = new Map();
   existing.forEach(t => map.set(tradeKey(t), t));
-  let added = 0;
+  let added = 0, updated = 0;
   incoming.forEach(t => {
     const k = tradeKey(t);
-    if (!map.has(k)) { map.set(k, t); added++; }
+    if (!map.has(k)) {
+      map.set(k, t); added++;
+    } else {
+      // 上書き（holdMinなど新しい情報で更新）
+      map.set(k, t); updated++;
+    }
   });
   const merged = Array.from(map.values()).sort((a, b) =>
     new Date(b.date + "T" + b.time) - new Date(a.date + "T" + a.time)
   );
-  return { merged, added, total: merged.length, dupes: incoming.length - added };
+  return { merged, added, updated, total: merged.length };
 }
 
 
@@ -1634,7 +1641,7 @@ function App({ onLogout, userEmail }) {
       const { merged, added, total, dupes } = mergeAndDedupe(existing, parsed);
       setTrades(merged);
       await saveTrades(merged);
-      setImportMsg({ added, dupes, total });
+      setImportMsg({ added, updated, total });
       setTimeout(() => setImportMsg(null), 4000);
     };
     const reader = new FileReader();
@@ -1854,7 +1861,7 @@ function App({ onLogout, userEmail }) {
         }}>
           <div style={{ color: "#00e5a0", fontWeight: 700, marginBottom: 4 }}>✓ インポート完了</div>
           <div style={{ color: "#aaa" }}>新規追加: <span style={{ color: "#e8e0d5" }}>{importMsg.added}件</span></div>
-          <div style={{ color: "#aaa" }}>重複スキップ: <span style={{ color: "#666" }}>{importMsg.dupes}件</span></div>
+          {importMsg.updated > 0 && <div style={{ color: "#aaa" }}>上書き更新: <span style={{ color: "#e8e0d5" }}>{importMsg.updated}件</span></div>}
           <div style={{ color: "#aaa" }}>累計保存: <span style={{ color: "#e8e0d5" }}>{importMsg.total}件</span></div>
         </div>
       )}
