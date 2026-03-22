@@ -452,7 +452,7 @@ function DayModal({ date: initialDate, trades, onClose, winThreshold = 0.0, loss
 
   // 取引のある日付一覧（昇順）
   const tradingDates = useMemo(() => {
-    const days = new Set(trades.map(t => getTradingDate(t.date, t.time)));
+    const days = new Set(trades.map(t => t.tradingDate));
     return [...days].sort();
   }, [trades]);
 
@@ -462,7 +462,7 @@ function DayModal({ date: initialDate, trades, onClose, winThreshold = 0.0, loss
 
   const dayTrades = useMemo(() =>
     trades
-      .filter(t => getTradingDate(t.date, t.time) === date)
+      .filter(t => t.tradingDate === date)
       .sort((a, b) => {
         const toMin = t => {
           const [h, m] = (t.time || "00:00").split(":").map(Number);
@@ -474,9 +474,9 @@ function DayModal({ date: initialDate, trades, onClose, winThreshold = 0.0, loss
       }),
   [trades, date]);
 
-  const wins = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
-  const losses = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
-  const draws = dayTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
+  const wins = dayTrades.filter(t => t.result === "win");
+  const losses = dayTrades.filter(t => t.result === "loss");
+  const draws = dayTrades.filter(t => t.result === "draw");
   const totalPnL = dayTrades.reduce((s, t) => s + t.pnl, 0);
   const decided = wins.length + losses.length;
   const winRate = decided ? (wins.length / decided * 100).toFixed(1) : "—";
@@ -589,7 +589,7 @@ function DayModal({ date: initialDate, trades, onClose, winThreshold = 0.0, loss
         {/* Trade List */}
         <div style={{ fontSize: 15, color: "#555", marginBottom: 8 }}>トレード一覧</div>
         {dayTrades.map(t => {
-          const r = tradeResult(t, winThreshold, lossThreshold);
+          const r = t.result;
           return (
             <div key={t.id} style={{
               display: "flex", alignItems: "center", gap: 8,
@@ -622,7 +622,7 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
   const [calendarUnit, setCalendarUnit] = useState(calendarUnitProp);
   const [viewDate, setViewDate] = useState(() => {
     if (trades.length === 0) return new Date();
-    const tradingDates = trades.map(t => getTradingDate(t.date, t.time)).sort().reverse();
+    const tradingDates = trades.map(t => t.tradingDate).sort().reverse();
     const latest = tradingDates[0] || trades[0].date;
     return new Date(latest + "T12:00:00");
   });
@@ -641,7 +641,7 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
   const dailyPnL = useMemo(() => {
     const map = {};
     trades.forEach(t => {
-      const td = getTradingDate(t.date, t.time);
+      const td = t.tradingDate;
       map[td] = (map[td] || 0) + t.pnl;
     });
     return map;
@@ -650,7 +650,7 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
   const dailyPips = useMemo(() => {
     const map = {};
     trades.forEach(t => {
-      const td = getTradingDate(t.date, t.time);
+      const td = t.tradingDate;
       map[td] = (map[td] || 0) + t.pips;
     });
     return map;
@@ -662,10 +662,10 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
   const dailyStats = useMemo(() => {
     const map = {};
     trades.forEach(t => {
-      const td = getTradingDate(t.date, t.time);
+      const td = t.tradingDate;
       if (!map[td]) map[td] = { wins: 0, losses: 0, draws: 0, count: 0, viols: 0 };
       map[td].count++;
-      const r = tradeResult(t, winThreshold, lossThreshold);
+      const r = t.result;
       if (r === "win") map[td].wins++;
       else if (r === "loss") map[td].losses++;
       else map[td].draws++;
@@ -683,15 +683,15 @@ function CalendarView({ trades, onMonthChange, calendarUnit: calendarUnitProp = 
   const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
   const monthPnL = Object.entries(dailyPnL).filter(([k]) => k.startsWith(monthKey)).reduce((s, [, v]) => s + v, 0);
   const tradeDays = Object.keys(dailyPnL).filter(k => k.startsWith(monthKey)).length;
-  const monthTrades = trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey));
-  const monthWins = monthTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win").length;
-  const monthDecided = monthTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) !== "draw").length;
+  const monthTrades = trades.filter(t => t.tradingDate.startsWith(monthKey));
+  const monthWins = monthTrades.filter(t => t.result === "win").length;
+  const monthDecided = monthTrades.filter(t => t.result !== "draw").length;
   const monthWinRate = monthDecided ? Math.round(monthWins / monthDecided * 100) : 0;
 
   return (
     <div style={{ fontFamily: "'DM Mono', monospace" }}>
       {selectedDay && (
-        <DayModal date={selectedDay} trades={trades} onClose={() => setSelectedDay(null)} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+        <DayModal date={selectedDay} trades={enrichedTrades} onClose={() => setSelectedDay(null)} winThreshold={winThreshold} lossThreshold={lossThreshold} />
       )}
 
       {/* Header */}
@@ -818,7 +818,7 @@ function calcViolations(trades, violThreshold = -6.0) {
   // Group by date, sort each day's trades by datetime
   const byDate = {};
   trades.forEach(t => {
-    const td = getTradingDate(t.date, t.time);
+    const td = t.tradingDate;
     if (!byDate[td]) byDate[td] = [];
     byDate[td].push(t);
   });
@@ -843,11 +843,11 @@ function StatsCards({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 
   const T = useTheme();
   const stats = useMemo(() => {
     const filtered = monthKey
-      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      ? trades.filter(t => t.tradingDate.startsWith(monthKey))
       : trades;
-    const wins = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
-    const losses = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
-    const draws = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
+    const wins = filtered.filter(t => t.result === "win");
+    const losses = filtered.filter(t => t.result === "loss");
+    const draws = filtered.filter(t => t.result === "draw");
     const monthPnL = filtered.reduce((s, t) => s + t.pnl, 0);
     const monthPips = filtered.reduce((s, t) => s + (t.pips || 0), 0);
     const decided = wins.length + losses.length;
@@ -940,7 +940,7 @@ function ViolationTable({ trades, monthKey, onDrillDown, violThreshold = -6.0 })
   const T = useTheme();
   const violations = useMemo(() => {
     const filtered = monthKey
-      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      ? trades.filter(t => t.tradingDate.startsWith(monthKey))
       : trades;
     return calcViolations(filtered, violThreshold);
   }, [trades, monthKey]);
@@ -949,7 +949,7 @@ function ViolationTable({ trades, monthKey, onDrillDown, violThreshold = -6.0 })
   const allTradeDays = useMemo(() => {
     const days = [...new Set(
       trades
-        .map(t => getTradingDate(t.date, t.time))
+        .map(t => t.tradingDate)
         .filter(d => monthKey ? d.startsWith(monthKey) : true)
     )].sort();
     return days;
@@ -996,13 +996,13 @@ function EquityCurve({ trades, monthKey }) {
   const T = useTheme();
   const data = useMemo(() => {
     const filtered = monthKey
-      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      ? trades.filter(t => t.tradingDate.startsWith(monthKey))
       : trades;
     const sorted = [...filtered].sort((a, b) => new Date(a.date + "T" + a.time) - new Date(b.date + "T" + b.time));
     let cum = 0;
     return sorted.map((t, i) => {
       cum += t.pnl;
-      const td = getTradingDate(t.date, t.time);
+      const td = t.tradingDate;
       return { pnl: cum, idx: i, date: td, time: t.time };
     });
   }, [trades, monthKey]);
@@ -1068,7 +1068,7 @@ function HourlyAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 
   const T = useTheme();
   const data = useMemo(() => {
     const filtered = monthKey
-      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      ? trades.filter(t => t.tradingDate.startsWith(monthKey))
       : trades;
     const hourOrder = [...Array(24).keys()].map(i => (i + 7) % 24);
     const hours = hourOrder.map(h => ({ hour: h, pnl: 0, wins: 0, losses: 0, draws: 0, totalPips: 0, winPips: 0, lossPips: 0, count: 0 }));
@@ -1079,7 +1079,7 @@ function HourlyAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 
         hours[idx].pnl += t.pnl;
         hours[idx].totalPips += t.pips;
         hours[idx].count += 1;
-        const r = tradeResult(t, winThreshold, lossThreshold);
+        const r = t.result;
         if (r === "win") { hours[idx].wins++; hours[idx].winPips += t.pips; }
         else if (r === "loss") { hours[idx].losses++; hours[idx].lossPips += t.pips; }
         else hours[idx].draws++;
@@ -1192,14 +1192,14 @@ function HourlyAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 
 function PairAnalysis({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }) {
   const T = useTheme();
   const data = useMemo(() => {
-    const filtered = monthKey ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey)) : trades;
+    const filtered = monthKey ? trades.filter(t => t.tradingDate.startsWith(monthKey)) : trades;
     const map = {};
     filtered.forEach(t => {
       const p = t.pair || "UNKNOWN";
       if (!map[p]) map[p] = { pair: p, pnl: 0, count: 0, wins: 0, losses: 0, draws: 0 };
       map[p].pnl += t.pnl;
       map[p].count += 1;
-      const r = tradeResult(t, winThreshold, lossThreshold);
+      const r = t.result;
       if (r === "win") map[p].wins += 1;
       else if (r === "loss") map[p].losses += 1;
       else map[p].draws += 1;
@@ -1238,11 +1238,11 @@ function TradeList({ trades, monthKey, listFilter, setListFilter, winThreshold =
   const filterViolation = listFilter?.violationOnly || false;
 
   const monthFiltered = monthKey
-    ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+    ? trades.filter(t => t.tradingDate.startsWith(monthKey))
     : [...trades];
   const violDates = new Set(Object.keys(calcViolations(monthFiltered)));
   let recent = [...monthFiltered].sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
-  if (filterDate) recent = recent.filter(t => getTradingDate(t.date, t.time) === filterDate);
+  if (filterDate) recent = recent.filter(t => t.tradingDate === filterDate);
   if (filterViolation) recent = recent.filter(t => t.pips <= violThreshold);
   return (
     <div>
@@ -1296,7 +1296,7 @@ function TradeList({ trades, monthKey, listFilter, setListFilter, winThreshold =
               <td style={{ padding: "7px 10px", fontWeight: 700, textAlign: "right", color: pnlColor(t.pnl, T) }}>{fmt(t.pnl)}</td>
               <td style={{ padding: "7px 10px", textAlign: "right", color: pnlColor(t.pips, T) }}>{fmtPips(t.pips)}</td>
               <td style={{ padding: "7px 10px" }}>
-                {(() => { const r = tradeResult(t, winThreshold, lossThreshold); return (
+                {(() => { const r = t.result; return (
                   <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 14, fontWeight: 700,
                     background: r === "win" ? "rgba(0,229,160,0.15)" : r === "loss" ? "rgba(255,77,109,0.15)" : "rgba(136,136,136,0.15)",
                     color: resultColor(r, T) }}>
@@ -1533,7 +1533,7 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
 
   const filtered = useMemo(() => {
     return monthKey
-      ? trades.filter(t => getTradingDate(t.date, t.time).startsWith(monthKey))
+      ? trades.filter(t => t.tradingDate.startsWith(monthKey))
       : trades;
   }, [trades, monthKey]);
 
@@ -1543,11 +1543,11 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
     const map = {};
     days.forEach(d => map[d] = { wins: 0, losses: 0, draws: 0, pips: 0, count: 0 });
     filtered.forEach(t => {
-      const td = getTradingDate(t.date, t.time);
+      const td = t.tradingDate;
       const dow = new Date(td + "T12:00:00").getDay(); // 0=日,1=月...5=金
       const label = ["日","月","火","水","木","金","土"][dow];
       if (!map[label]) return;
-      const r = tradeResult(t, winThreshold, lossThreshold);
+      const r = t.result;
       map[label].count++;
       map[label].pips += t.pips;
       if (r === "win") map[label].wins++;
@@ -1570,8 +1570,8 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
 
   // B: RR比分析
   const rrData = useMemo(() => {
-    const wins = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
-    const losses = filtered.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
+    const wins = filtered.filter(t => t.result === "win");
+    const losses = filtered.filter(t => t.result === "loss");
     const avgWin = wins.length ? wins.reduce((s, t) => s + t.pips, 0) / wins.length : 0;
     const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + t.pips, 0) / losses.length) : 0;
     const rr = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : "—";
@@ -1608,7 +1608,7 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
       slots.forEach(s => { map[d][s.label] = { pips: 0, count: 0, wins: 0, losses: 0 }; });
     });
     filtered.forEach(t => {
-      const td = getTradingDate(t.date, t.time);
+      const td = t.tradingDate;
       const dow = new Date(td + "T12:00:00").getDay();
       const dayLabel = ["日","月","火","水","木","金","土"][dow];
       if (!map[dayLabel]) return;
@@ -1617,7 +1617,7 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
       if (!slot) return;
       map[dayLabel][slot.label].pips += t.pips;
       map[dayLabel][slot.label].count++;
-      const r = tradeResult(t, winThreshold, lossThreshold);
+      const r = t.result;
       if (r === "win") map[dayLabel][slot.label].wins++;
       else if (r === "loss") map[dayLabel][slot.label].losses++;
     });
@@ -1648,8 +1648,8 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
           {dayOfWeekData.map(d => {
             const wr = d.winRate ? parseFloat(d.winRate) : null;
             const decided = d.wins + d.losses;
-            const avgW = d.wins ? (filtered.filter(t => getTradingDate(t.date, t.time) && new Date(getTradingDate(t.date, t.time)+"T12:00:00").getDay() === ["日","月","火","水","木","金","土"].indexOf(d.day) && tradeResult(t, winThreshold, lossThreshold) === "win").reduce((s,t) => s+t.pips, 0) / Math.max(d.wins,1)).toFixed(1) : "—";
-            const avgL = d.losses ? (filtered.filter(t => getTradingDate(t.date, t.time) && new Date(getTradingDate(t.date, t.time)+"T12:00:00").getDay() === ["日","月","火","水","木","金","土"].indexOf(d.day) && tradeResult(t, winThreshold, lossThreshold) === "loss").reduce((s,t) => s+t.pips, 0) / Math.max(d.losses,1)).toFixed(1) : "—";
+            const avgW = d.wins ? (filtered.filter(t => t.tradingDate && new Date(t.tradingDate+"T12:00:00").getDay() === ["日","月","火","水","木","金","土"].indexOf(d.day) && t.result === "win").reduce((s,t) => s+t.pips, 0) / Math.max(d.wins,1)).toFixed(1) : "—";
+            const avgL = d.losses ? (filtered.filter(t => t.tradingDate && new Date(t.tradingDate+"T12:00:00").getDay() === ["日","月","火","水","木","金","土"].indexOf(d.day) && t.result === "loss").reduce((s,t) => s+t.pips, 0) / Math.max(d.losses,1)).toFixed(1) : "—";
             const totalPips = parseFloat(d.totalPips);
             return [
               <div key={d.day+"l"} style={{ padding:"6px", fontSize:13, fontWeight:700, color:T.text, borderBottom:`1px solid ${T.border}` }}>{d.day}</div>,
@@ -1760,12 +1760,12 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
   const yearlyData = useMemo(() => {
     const map = {};
     trades.forEach(t => {
-      const td = getTradingDate(t.date, t.time);
+      const td = t.tradingDate;
       const year = td.slice(0, 4);
       if (!map[year]) map[year] = { year, pnl: 0, pips: 0, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0 };
       map[year].pnl += t.pnl;
       map[year].pips += t.pips;
-      const r = tradeResult(t, winThreshold, lossThreshold);
+      const r = t.result;
       if (r === "win") { map[year].wins++; map[year].winPips += t.pips; }
       else if (r === "loss") { map[year].losses++; map[year].lossPips += t.pips; }
       else map[year].draws++;
@@ -1786,24 +1786,30 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
   const curveData = useMemo(() => {
     const sorted = [...trades].sort((a, b) => new Date(a.date + "T" + a.time) - new Date(b.date + "T" + b.time));
     let cum = 0;
-    return sorted.map((t, i) => { cum += t.pnl; return { idx: i, pnl: cum, date: getTradingDate(t.date, t.time) }; });
+    return sorted.map(t => {
+      cum += t.pnl;
+      const td = t.tradingDate;
+      return { ts: new Date(td).getTime(), pnl: cum, date: td };
+    });
   }, [trades]);
 
-  // 年境界のtick
+  // 年境界のtick（各年1月1日のタイムスタンプ）
   const yearTicks = useMemo(() => {
-    const seen = new Set();
-    return curveData.filter(d => {
-      const y = d.date.slice(0,4);
-      if (!seen.has(y)) { seen.add(y); return true; }
-      return false;
-    }).map(d => ({ idx: d.idx, label: d.date.slice(0,4) }));
+    if (!curveData.length) return [];
+    const startYear = new Date(curveData[0].ts).getFullYear();
+    const endYear = new Date(curveData[curveData.length-1].ts).getFullYear();
+    const ticks = [];
+    for (let y = startYear; y <= endYear; y++) {
+      ticks.push({ ts: new Date(`${y}-01-01`).getTime(), label: String(y) });
+    }
+    return ticks;
   }, [curveData]);
 
   // 合計行
   const total = useMemo(() => {
-    const allWins = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
-    const allLosses = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
-    const allDraws = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
+    const allWins = trades.filter(t => t.result === "win");
+    const allLosses = trades.filter(t => t.result === "loss");
+    const allDraws = trades.filter(t => t.result === "draw");
     const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
     const totalPips = trades.reduce((s, t) => s + t.pips, 0);
     const decided = allWins.length + allLosses.length;
@@ -1819,9 +1825,11 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
 
   if (!yearlyData.length) return <div style={{ color: T.textFaint, fontSize: 14 }}>データがありません</div>;
 
-  const tickIndices = yearTicks.map(d => d.idx);
-  const tickMap = Object.fromEntries(yearTicks.map(d => [d.idx, d.label]));
+  const tickTs = yearTicks.map(d => d.ts);
+  const tickMap = Object.fromEntries(yearTicks.map(d => [d.ts, d.label]));
   const finalPnl = curveData.length ? curveData[curveData.length-1].pnl : 0;
+  const domainMin = curveData.length ? curveData[0].ts : 0;
+  const domainMax = curveData.length ? curveData[curveData.length-1].ts : 1;
 
   return (
     <div>
@@ -1837,8 +1845,9 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={T.chartGrid}/>
-            <XAxis dataKey="idx" type="number" domain={[0, curveData.length-1]}
-              ticks={tickIndices} tickFormatter={v => tickMap[v] || ""}
+            <XAxis dataKey="ts" type="number" scale="time"
+              domain={[domainMin, domainMax]}
+              ticks={tickTs} tickFormatter={v => tickMap[v] || ""}
               tick={{ fill: T.chartTick, fontSize: 12 }} height={28}/>
             <YAxis tickFormatter={v => (v/1000).toFixed(0)+"K"} tick={{ fill: T.chartTick, fontSize: 12 }} width={44}/>
             <Tooltip content={({ active, payload }) => {
@@ -1856,7 +1865,8 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
       </div>
 
       {/* Yearly table */}
-      <div style={{ display: "grid", gridTemplateColumns: "52px 1fr 72px 52px 60px 60px", gap: 0 }}>
+      <div style={{ overflowX: "auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "52px 1fr 72px 52px 60px 60px", gap: 0, minWidth: 380 }}>
         {["年", "損益(円)", "pips", "件数", "勝均pips", "負均pips"].map((h, i) => (
           <div key={h} style={{ fontSize: 11, color: T.textMuted, padding: "5px 6px",
             textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
@@ -1878,6 +1888,7 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
           <div key="total-w" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.positive, borderTop:`2px solid ${T.borderStrong}` }}>{total.avgWinPips !== "—" ? "+" + total.avgWinPips : "—"}</div>,
           <div key="total-l" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.negative, borderTop:`2px solid ${T.borderStrong}` }}>{total.avgLossPips}</div>,
         ]}
+      </div>
       </div>
     </div>
   );
@@ -1951,6 +1962,15 @@ function App({ onLogout, userEmail }) {
   const winThreshold   = isNaN(settings.winThreshold)   ? 0.0  : (settings.winThreshold   ?? 0.0);
   const lossThreshold  = isNaN(settings.lossThreshold)  ? 0.0  : (settings.lossThreshold  ?? 0.0);
   const calendarUnit   = settings.calendarUnit  ?? "pnl"; // "pnl" or "pips"
+
+  // 事前計算済みトレード（各トレードにtradingDateとresultを付与）
+  const enrichedTrades = useMemo(() => {
+    return trades.map(t => ({
+      ...t,
+      tradingDate: t.tradingDate,
+      result: t.result,
+    }));
+  }, [trades, winThreshold, lossThreshold]);
 
   const saveSettings = async (newSettings) => {
     setSettings(newSettings);
@@ -2371,7 +2391,7 @@ function App({ onLogout, userEmail }) {
                   borderRadius: 6, padding: "4px 8px", fontSize: 15, fontWeight: 700, cursor: "pointer",
                   fontFamily: "'DM Mono', monospace" }}>
                 {(() => {
-                  const years = [...new Set(trades.map(t => getTradingDate(t.date, t.time).slice(0,4)))].sort().reverse();
+                  const years = [...new Set(trades.map(t => t.tradingDate.slice(0,4)))].sort().reverse();
                   return years.map(y => <option key={y} value={y}>{y}年</option>);
                 })()}
               </select>
@@ -2392,7 +2412,7 @@ function App({ onLogout, userEmail }) {
               setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
             }} style={{...navBtn, ...T.navBtn}}>›</button>
           </div>
-          <StatsCards trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          <StatsCards trades={enrichedTrades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
         </Section>
 
         {trades.length > 0 && <>
@@ -2420,7 +2440,7 @@ function App({ onLogout, userEmail }) {
         {/* Tab Content */}
         {activeTab === "calendar" && (
           <Section title="損益カレンダー">
-            <CalendarView trades={trades} onMonthChange={setSelectedMonth} calendarUnit={calendarUnit} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} selectedMonth={selectedMonth} />
+            <CalendarView trades={enrichedTrades} onMonthChange={setSelectedMonth} calendarUnit={calendarUnit} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} selectedMonth={selectedMonth} />
           </Section>
         )}
 
@@ -2429,7 +2449,7 @@ function App({ onLogout, userEmail }) {
             <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 16 }}>
               {selectedMonth.replace("-", "年")}月
             </div>
-            <ViolationTable trades={trades} monthKey={selectedMonth} violThreshold={violThreshold} onDrillDown={(date) => {
+            <ViolationTable trades={enrichedTrades} monthKey={selectedMonth} violThreshold={violThreshold} onDrillDown={(date) => {
               setListFilter({ date, violationOnly: true });
               setActiveTab("list");
             }} />
@@ -2437,32 +2457,32 @@ function App({ onLogout, userEmail }) {
         )}
         {activeTab === "equity" && (
           <Section title="損益曲線">
-            <EquityCurve trades={trades} monthKey={selectedMonth} />
+            <EquityCurve trades={enrichedTrades} monthKey={selectedMonth} />
           </Section>
         )}
         {activeTab === "hourly" && (
           <Section title="時間帯別分析">
-            <HourlyAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <HourlyAnalysis trades={enrichedTrades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "yearly" && (
           <Section title="年次集計">
-            <YearlySummary trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <YearlySummary trades={enrichedTrades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "analytics" && (
           <Section title="分析">
-            <Analytics trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <Analytics trades={enrichedTrades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "pair" && (
           <Section title="通貨ペア別パフォーマンス">
-            <PairAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <PairAnalysis trades={enrichedTrades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "list" && (
           <Section title="トレード履歴">
-            <TradeList trades={trades} monthKey={selectedMonth} listFilter={listFilter} setListFilter={setListFilter} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} />
+            <TradeList trades={enrichedTrades} monthKey={selectedMonth} listFilter={listFilter} setListFilter={setListFilter} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} />
           </Section>
         )}
         {activeTab === "settings" && (
@@ -2530,7 +2550,7 @@ function App({ onLogout, userEmail }) {
               </div>
 
               {/* データエクスポート */}
-              <ExportPanel trades={trades} T={T} />
+              <ExportPanel trades={enrichedTrades} T={T} />
 
               {/* カレンダー表示単位 */}
               <div>
@@ -2546,6 +2566,17 @@ function App({ onLogout, userEmail }) {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* データ初期化 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>データ管理</div>
+                <button onClick={handleClearData} style={{
+                  background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
+                  color: T.negative, borderRadius: 8, padding: "8px 20px",
+                  cursor: "pointer", fontSize: 14, fontWeight: 600,
+                }}>データを初期化する</button>
+                <div style={{ fontSize: 11, color: T.textFaint, marginTop: 6 }}>保存されたトレードデータと設定をすべて削除します</div>
               </div>
 
             </div>
