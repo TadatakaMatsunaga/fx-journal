@@ -95,16 +95,11 @@
         async get(key) {
           const table = key.includes("settings") ? "settings" : "trades";
           try {
-            // チャンク含む全レコードを取得（user_idがuserIdまたはuserId__chunk_Nのもの）
             const data = await supabaseRequest("GET",
-              `/rest/v1/${table}?user_id=like.${encodeURIComponent(userId)}*&select=user_id,data&order=user_id`,
+              `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}&select=data`,
               undefined, accessToken);
             if (!data || !data.length) throw new Error("not found");
-            // チャンクをマージ
-            const allItems = data.flatMap(row =>
-              Array.isArray(row.data) ? row.data : [row.data]
-            );
-            const value = JSON.stringify(allItems.length === 1 && !Array.isArray(allItems[0]) ? allItems[0] : allItems);
+            const value = typeof data[0].data === "string" ? data[0].data : JSON.stringify(data[0].data);
             return { key, value };
           } catch(e) {
             if (e.message && e.message.includes("401")) { clearSession(); window.location.reload(); }
@@ -119,39 +114,27 @@
             "Content-Type": "application/json",
             "apikey": SUPABASE_KEY,
             "Authorization": "Bearer " + accessToken,
-            "Prefer": "return=minimal",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
           };
-          // チャンク分割: tradesは1000件ごとに分割して保存
-          const chunks = Array.isArray(parsed) && parsed.length > 1000
-            ? Array.from({ length: Math.ceil(parsed.length / 1000) }, (_, i) => parsed.slice(i * 1000, (i + 1) * 1000))
-            : [parsed];
-
-          // 既存データを削除してから全チャンクをINSERT
-          const delRes = await fetch(baseUrl + `?user_id=eq.${encodeURIComponent(userId)}`, {
-            method: "DELETE", headers,
+          // UPSERT: user_idがあれば更新、なければ挿入
+          const body = JSON.stringify({
+            user_id: userId,
+            data: parsed,
+            updated_at: new Date().toISOString()
           });
-
-          for (let i = 0; i < chunks.length; i++) {
-            const chunkKey = chunks.length > 1 ? `${key}_chunk_${i}` : key;
-            const body = JSON.stringify({
-              user_id: chunks.length > 1 ? `${userId}__chunk_${i}` : userId,
-              data: chunks[i],
-              updated_at: new Date().toISOString()
-            });
-            const res = await fetch(baseUrl, {
-              method: "POST", headers, body,
-            });
-            if (!res.ok) {
-              const errText = await res.text();
-              throw new Error(`保存失敗 (chunk ${i}): ${errText}`);
-            }
+          const res = await fetch(baseUrl, {
+            method: "POST", headers, body,
+          });
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText);
           }
           return { key, value };
         },
         async delete(key) {
           const table = key.includes("settings") ? "settings" : "trades";
           await supabaseRequest("DELETE",
-            `/rest/v1/${table}?user_id=like.${encodeURIComponent(userId)}*`,
+            `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}`,
             undefined, accessToken);
           return { key, deleted: true };
         },
