@@ -2002,7 +2002,7 @@ function App({ onLogout, userEmail }) {
         alert("CSVの解析に失敗しました。\n対応: 証券会社の取引履歴CSV（Shift-JIS/UTF-8）");
         return;
       }
-      // Load current saved trades (not sample data)
+      // Load current saved trades from Supabase
       let existing = [];
       try {
         const result = await window.storage.get(STORAGE_KEY);
@@ -2010,7 +2010,14 @@ function App({ onLogout, userEmail }) {
           const saved = JSON.parse(result.value);
           if (Array.isArray(saved)) existing = saved;
         }
-      } catch {}
+      } catch(e) {
+        // データなし（初回）は正常、それ以外はエラー表示
+        if (!e.message?.includes("not found")) {
+          console.error("既存データ読み込み失敗:", e);
+          alert("既存データの読み込みに失敗しました。\n" + e.message);
+          return;
+        }
+      }
 
       const { merged, added, updated, total } = mergeAndDedupe(existing, parsed);
       setTrades(merged);
