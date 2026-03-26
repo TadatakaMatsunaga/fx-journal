@@ -1494,6 +1494,14 @@ function TabIcon({ id, active, color, size = 24 }) {
         <circle cx="18" cy="17" r="1.5" fill={pink}/>
       </svg>
     ),
+    lot: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <rect x="3" y="3" width="18" height="18" rx="3" stroke={stroke} strokeWidth="1.5"/>
+        <rect x="6" y="14" width="3" height="5" rx="1" fill={pink}/>
+        <rect x="10.5" y="10" width="3" height="9" rx="1" fill={teal}/>
+        <rect x="15" y="6" width="3" height="13" rx="1" fill={teal} opacity="0.6"/>
+      </svg>
+    ),
     yearly: (
       <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
         <rect x="3" y="4" width="18" height="17" rx="3" stroke={stroke} strokeWidth="1.5"/>
@@ -1752,6 +1760,128 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
 }
 
 
+
+// ── Lot Analysis ──────────────────────────────────────────────────────────
+function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
+  const T = useTheme();
+
+  // 期間フィルター
+  const allMonths = useMemo(() => {
+    const s = new Set(trades.map(t => getTradingDate(t.date, t.time).slice(0, 7)));
+    return [...s].sort();
+  }, [trades]);
+
+  const allYears = useMemo(() => {
+    const s = new Set(allMonths.map(m => m.slice(0, 4)));
+    return [...s].sort().reverse();
+  }, [allMonths]);
+
+  const [rangeType, setRangeType] = useState("all"); // all / year / month
+  const [selectedYear, setSelectedYear] = useState(() => allYears[0] || "");
+  const [selectedMonth, setSelectedMonth] = useState(() => allMonths[allMonths.length - 1] || "");
+
+  const filtered = useMemo(() => {
+    if (rangeType === "all") return trades;
+    if (rangeType === "year") return trades.filter(t => getTradingDate(t.date, t.time).startsWith(selectedYear));
+    return trades.filter(t => getTradingDate(t.date, t.time).startsWith(selectedMonth));
+  }, [trades, rangeType, selectedYear, selectedMonth]);
+
+  const lotData = useMemo(() => {
+    const map = {};
+    filtered.forEach(t => {
+      const lot = Math.round(t.lots); // 1刻みに丸める
+      if (!map[lot]) map[lot] = { lot, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0, totalPips: 0 };
+      const r = tradeResult(t, winThreshold, lossThreshold);
+      map[lot].totalPips += t.pips;
+      if (r === "win") { map[lot].wins++; map[lot].winPips += t.pips; }
+      else if (r === "loss") { map[lot].losses++; map[lot].lossPips += t.pips; }
+      else map[lot].draws++;
+    });
+    return Object.values(map).sort((a, b) => a.lot - b.lot).map(d => {
+      const decided = d.wins + d.losses;
+      const count = d.wins + d.losses + d.draws;
+      return {
+        ...d, count,
+        winRate: decided ? (d.wins / decided * 100).toFixed(1) : "—",
+        avgWinPips: d.wins ? (d.winPips / d.wins).toFixed(2) : "—",
+        avgLossPips: d.losses ? (d.lossPips / d.losses).toFixed(2) : "—",
+        avgTotalPips: count ? (d.totalPips / count).toFixed(2) : "—",
+      };
+    });
+  }, [filtered, winThreshold, lossThreshold]);
+
+  const maxCount = Math.max(...lotData.map(d => d.count), 1);
+
+  return (
+    <div>
+      {/* 期間フィルター */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[["all","全期間"], ["year","年"], ["month","月"]].map(([val, label]) => (
+            <button key={val} onClick={() => setRangeType(val)} style={{
+              padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              border: rangeType === val ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.border}`,
+              background: rangeType === val ? T.tabActive : T.surface,
+              color: rangeType === val ? T.tabActiveText : T.textMuted,
+            }}>{label}</button>
+          ))}
+        </div>
+        {rangeType === "year" && (
+          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)}
+            style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
+              borderRadius: 6, padding: "4px 8px", fontSize: 13, cursor: "pointer" }}>
+            {allYears.map(y => <option key={y} value={y}>{y}年</option>)}
+          </select>
+        )}
+        {rangeType === "month" && (
+          <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+            style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
+              borderRadius: 6, padding: "4px 8px", fontSize: 13, cursor: "pointer" }}>
+            {[...allMonths].reverse().map(m => (
+              <option key={m} value={m}>{m.replace("-","年")}月</option>
+            ))}
+          </select>
+        )}
+        <span style={{ fontSize: 12, color: T.textFaint }}>{filtered.length}件</span>
+      </div>
+
+      {/* テーブル */}
+      {lotData.length === 0 ? (
+        <div style={{ color: T.textFaint, fontSize: 14 }}>データがありません</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "52px 1fr 60px 60px 60px 80px", gap: 0, minWidth: 380 }}>
+            {["ロット", "取引数", "勝率", "勝均pips", "負均pips", "収益(円)"].map((h, i) => (
+              <div key={h} style={{ fontSize: 11, color: T.textMuted, padding: "5px 6px",
+                textAlign: i <= 1 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
+            ))}
+            {lotData.map(d => {
+              const wr = d.winRate !== "—" ? parseFloat(d.winRate) : null;
+              const barW = Math.round(d.count / maxCount * 100);
+              return [
+                <div key={d.lot+"l"} style={{ padding: "7px 6px", fontSize: 14, fontWeight: 700, color: T.text, borderBottom: `1px solid ${T.border}` }}>{d.lot}</div>,
+                <div key={d.lot+"b"} style={{ padding: "7px 6px", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ flex: 1, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${barW}%`, background: T.positive, borderRadius: 3, opacity: 0.7 }}/>
+                    </div>
+                    <span style={{ fontSize: 12, color: T.textSub, minWidth: 28, textAlign: "right" }}>{d.count}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textFaint, marginTop: 2 }}>{d.wins}勝 {d.losses}負 {d.draws}分</div>
+                </div>,
+                <div key={d.lot+"wr"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", color: wr === null ? T.textFaint : wr >= 50 ? T.positive : T.negative, fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>{d.winRate !== "—" ? d.winRate + "%" : "—"}</div>,
+                <div key={d.lot+"wp"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", color: T.positive, borderBottom: `1px solid ${T.border}` }}>{d.avgWinPips !== "—" ? "+" + d.avgWinPips : "—"}</div>,
+                <div key={d.lot+"lp"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", color: T.negative, borderBottom: `1px solid ${T.border}` }}>{d.avgLossPips}</div>,
+                <div key={d.lot+"pnl"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", fontWeight: 700, color: pnlColor(d.totalPnl, T), borderBottom: `1px solid ${T.border}` }}>{fmt(d.totalPnl)}</div>,
+              ];
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Yearly Summary ────────────────────────────────────────────────────────
 function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
   const T = useTheme();
@@ -1989,10 +2119,7 @@ function App({ onLogout, userEmail }) {
   const saveTrades = useCallback(async (data) => {
     try {
       await window.storage.set(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) {
-      console.error("保存失敗:", e);
-      alert("データの保存に失敗しました。\n" + (e.message || e));
-    }
+    } catch (e) { console.error("保存失敗:", e); }
   }, []);
 
   const handleFile = useCallback((file) => {
@@ -2003,33 +2130,17 @@ function App({ onLogout, userEmail }) {
         alert("CSVの解析に失敗しました。\n対応: 証券会社の取引履歴CSV（Shift-JIS/UTF-8）");
         return;
       }
-      // Load current saved trades from Supabase
+      // Load current saved trades (not sample data)
       let existing = [];
       try {
         const result = await window.storage.get(STORAGE_KEY);
         if (result && result.value) {
-          // jsonb型で返る場合はすでにオブジェクトの可能性がある
-          const saved = typeof result.value === "string" ? JSON.parse(result.value) : result.value;
-          if (Array.isArray(saved)) {
-            existing = saved;
-            console.log("既存データ読み込み成功:", existing.length, "件");
-          } else {
-            console.warn("既存データが配列でない:", typeof saved, saved);
-          }
+          const saved = JSON.parse(result.value);
+          if (Array.isArray(saved)) existing = saved;
         }
-      } catch(e) {
-        if (!e.message?.includes("not found")) {
-          console.error("既存データ読み込み失敗:", e);
-          alert("既存データの読み込みに失敗しました。\n" + e.message);
-          return;
-        } else {
-          console.log("既存データなし（初回）");
-        }
-      }
+      } catch {}
 
-      console.log("マージ前: existing=", existing.length, "parsed=", parsed.length);
       const { merged, added, updated, total } = mergeAndDedupe(existing, parsed);
-      console.log("マージ後:", merged.length, "件 (追加:", added, "更新:", updated, ")");
       setTrades(merged);
       await saveTrades(merged);
       setImportMsg({ added, updated, total });
@@ -2094,6 +2205,7 @@ function App({ onLogout, userEmail }) {
     { id: "pair",       icon: "💱", label: "通貨ペア" },
     { id: "list",       icon: "📋", label: "履歴" },
     { id: "analytics",  icon: "🔬", label: "分析" },
+    { id: "lot",        icon: "📊", label: "ロット" },
     { id: "yearly",     icon: "📆", label: "年次" },
     { id: "settings",   icon: "⚙️", label: "設定" },
   ];
@@ -2429,6 +2541,11 @@ function App({ onLogout, userEmail }) {
         {activeTab === "hourly" && (
           <Section title="時間帯別分析">
             <HourlyAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          </Section>
+        )}
+        {activeTab === "lot" && (
+          <Section title="ロット別分析">
+            <LotAnalysis trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
         )}
         {activeTab === "yearly" && (
