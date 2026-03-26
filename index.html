@@ -1789,12 +1789,15 @@ function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
   const lotData = useMemo(() => {
     const map = {};
     filtered.forEach(t => {
-      const lot = Math.round(t.lots); // 1刻みに丸める
-      if (!map[lot]) map[lot] = { lot, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0, totalPips: 0 };
+      const lot = Math.round(parseFloat(t.lots) || 0);
+      const pips = parseFloat(t.pips) || 0;
+      const pnl = parseFloat(t.pnl) || 0;
+      if (!map[lot]) map[lot] = { lot, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0, totalPips: 0, totalPnl: 0 };
       const r = tradeResult(t, winThreshold, lossThreshold);
-      map[lot].totalPips += t.pips;
-      if (r === "win") { map[lot].wins++; map[lot].winPips += t.pips; }
-      else if (r === "loss") { map[lot].losses++; map[lot].lossPips += t.pips; }
+      map[lot].totalPips += pips;
+      map[lot].totalPnl += pnl;
+      if (r === "win") { map[lot].wins++; map[lot].winPips += pips; }
+      else if (r === "loss") { map[lot].losses++; map[lot].lossPips += pips; }
       else map[lot].draws++;
     });
     return Object.values(map).sort((a, b) => a.lot - b.lot).map(d => {
