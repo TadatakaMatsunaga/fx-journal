@@ -23,7 +23,7 @@
   <script src="https://unpkg.com/recharts@2.1.16/umd/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script type="text/babel" data-presets="react">
-    const { useState, useCallback, useMemo, useEffect, useContext, createContext } = React;
+    const { useState, useCallback, useMemo, useEffect, useContext, createContext, useRef } = React;
     const { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
              Tooltip, ResponsiveContainer, Cell, LineChart, Line } = Recharts;
 
@@ -228,23 +228,22 @@
       const [ready, setReady] = useState(false);
 
       useEffect(() => {
+        const withTimeout = (promise, ms) =>
+          Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+
         const init = async () => {
           const s = loadSession();
           if (s) {
-            // リフレッシュ試行、失敗したら既存トークンで継続
-            const refreshed = await refreshSession(s);
-            const activeSession = refreshed || s;
-            // トークンが有効か確認
-            const testRes = await fetch(
-              SUPABASE_URL + `/rest/v1/trades?user_id=eq.${activeSession.user.id}&select=user_id&limit=1`,
-              { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + activeSession.access_token } }
-            ).catch(() => ({ status: 500 }));
-            if (testRes.status === 401) {
-              // 完全に期限切れ → ログイン画面へ
-              clearSession();
-            } else {
+            try {
+              // リフレッシュ試行（3秒タイムアウト）
+              const refreshed = await withTimeout(refreshSession(s), 3000).catch(() => null);
+              const activeSession = refreshed || s;
               window.storage = makeStorage(activeSession.user.id, activeSession.access_token);
               setSession(activeSession);
+            } catch(e) {
+              // タイムアウト or エラー → 既存セッションでそのまま続行
+              window.storage = makeStorage(s.user.id, s.access_token);
+              setSession(s);
             }
           }
           setReady(true);
@@ -1776,8 +1775,9 @@ function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
     return [...s].sort().reverse();
   }, [allMonths]);
 
-  const [rangeType, setRangeType] = useState("all"); // all / year / month
-  const [selectedYear, setSelectedYear] = useState(() => allYears[0] || "");
+  const currentYear = String(new Date().getFullYear());
+  const [rangeType, setRangeType] = useState("year");
+  const [selectedYear, setSelectedYear] = useState(() => allYears.includes(currentYear) ? currentYear : (allYears[0] || ""));
   const [selectedMonth, setSelectedMonth] = useState(() => allMonths[allMonths.length - 1] || "");
 
   const filtered = useMemo(() => {
@@ -1888,6 +1888,7 @@ function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
 // ── Yearly Summary ────────────────────────────────────────────────────────
 function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
   const T = useTheme();
+  const currentYear = String(new Date().getFullYear());
 
   const yearlyData = useMemo(() => {
     const map = {};
@@ -1895,11 +1896,11 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
       const td = getTradingDate(t.date, t.time);
       const year = td.slice(0, 4);
       if (!map[year]) map[year] = { year, pnl: 0, pips: 0, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0 };
-      map[year].pnl += t.pnl;
-      map[year].pips += t.pips;
+      map[year].pnl += parseFloat(t.pnl) || 0;
+      map[year].pips += parseFloat(t.pips) || 0;
       const r = tradeResult(t, winThreshold, lossThreshold);
-      if (r === "win") { map[year].wins++; map[year].winPips += t.pips; }
-      else if (r === "loss") { map[year].losses++; map[year].lossPips += t.pips; }
+      if (r === "win") { map[year].wins++; map[year].winPips += parseFloat(t.pips) || 0; }
+      else if (r === "loss") { map[year].losses++; map[year].lossPips += parseFloat(t.pips) || 0; }
       else map[year].draws++;
     });
     return Object.values(map).sort((a, b) => b.year - a.year).map(y => {
@@ -1914,60 +1915,85 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
     });
   }, [trades, winThreshold, lossThreshold]);
 
-  // 累計損益曲線データ（月次）
+  const availableYears = yearlyData.map(y => y.year);
+  const [selectedYear, setSelectedYear] = useState(() =>
+    availableYears.includes(currentYear) ? currentYear : (availableYears[0] || currentYear)
+  );
+
+  // 選択年のトレード
+  const yearTrades = useMemo(() =>
+    trades.filter(t => getTradingDate(t.date, t.time).startsWith(selectedYear)),
+    [trades, selectedYear]
+  );
+
+  // 選択年の損益曲線
   const curveData = useMemo(() => {
-    const sorted = [...trades].sort((a, b) => new Date(a.date + "T" + a.time) - new Date(b.date + "T" + b.time));
+    const sorted = [...yearTrades].sort((a, b) => new Date(a.date + "T" + a.time) - new Date(b.date + "T" + b.time));
     let cum = 0;
     return sorted.map(t => {
-      cum += t.pnl;
+      cum += parseFloat(t.pnl) || 0;
       const td = getTradingDate(t.date, t.time);
       return { ts: new Date(td).getTime(), pnl: cum, date: td };
     });
-  }, [trades]);
+  }, [yearTrades]);
 
-  // 年境界のtick（各年1月1日のタイムスタンプ）
-  const yearTicks = useMemo(() => {
-    if (!curveData.length) return [];
-    const startYear = new Date(curveData[0].ts).getFullYear();
-    const endYear = new Date(curveData[curveData.length-1].ts).getFullYear();
+  // 月境界のtick
+  const monthTicks = useMemo(() => {
     const ticks = [];
-    for (let y = startYear; y <= endYear; y++) {
-      ticks.push({ ts: new Date(`${y}-01-01`).getTime(), label: String(y) });
+    for (let m = 1; m <= 12; m++) {
+      ticks.push({ ts: new Date(`${selectedYear}-${String(m).padStart(2,"0")}-01`).getTime(), label: `${m}月` });
     }
     return ticks;
-  }, [curveData]);
+  }, [selectedYear]);
 
-  // 合計行
+  // 合計行（全期間）
   const total = useMemo(() => {
     const allWins = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
     const allLosses = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
-    const allDraws = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "draw");
-    const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
-    const totalPips = trades.reduce((s, t) => s + t.pips, 0);
+    const totalPnl = trades.reduce((s, t) => s + (parseFloat(t.pnl) || 0), 0);
+    const totalPips = trades.reduce((s, t) => s + (parseFloat(t.pips) || 0), 0);
     const decided = allWins.length + allLosses.length;
     return {
       pnl: totalPnl, pips: totalPips,
-      wins: allWins.length, losses: allLosses.length, draws: allDraws.length,
+      wins: allWins.length, losses: allLosses.length, draws: trades.length - allWins.length - allLosses.length,
       count: trades.length,
       winRate: decided ? (allWins.length / decided * 100).toFixed(1) : "—",
-      avgWinPips: allWins.length ? (allWins.reduce((s,t) => s+t.pips,0) / allWins.length).toFixed(2) : "—",
-      avgLossPips: allLosses.length ? (allLosses.reduce((s,t) => s+t.pips,0) / allLosses.length).toFixed(2) : "—",
+      avgWinPips: allWins.length ? (allWins.reduce((s,t) => s+(parseFloat(t.pips)||0),0) / allWins.length).toFixed(2) : "—",
+      avgLossPips: allLosses.length ? (allLosses.reduce((s,t) => s+(parseFloat(t.pips)||0),0) / allLosses.length).toFixed(2) : "—",
     };
   }, [trades, winThreshold, lossThreshold]);
 
   if (!yearlyData.length) return <div style={{ color: T.textFaint, fontSize: 14 }}>データがありません</div>;
 
-  const tickTs = yearTicks.map(d => d.ts);
-  const tickMap = Object.fromEntries(yearTicks.map(d => [d.ts, d.label]));
+  const tickTs = monthTicks.map(d => d.ts);
+  const tickMap = Object.fromEntries(monthTicks.map(d => [d.ts, d.label]));
   const finalPnl = curveData.length ? curveData[curveData.length-1].pnl : 0;
-  const domainMin = curveData.length ? curveData[0].ts : 0;
-  const domainMax = curveData.length ? curveData[curveData.length-1].ts : 1;
+  const domainMin = new Date(`${selectedYear}-01-01`).getTime();
+  const domainMax = new Date(`${selectedYear}-12-31`).getTime();
 
   return (
     <div>
-      {/* 累計損益曲線 */}
+      {/* 年選択 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+        <button onClick={() => {
+          const idx = availableYears.indexOf(selectedYear);
+          if (idx < availableYears.length - 1) setSelectedYear(availableYears[idx + 1]);
+        }} style={{ ...navBtn, ...T.navBtn, opacity: availableYears.indexOf(selectedYear) < availableYears.length - 1 ? 1 : 0.3 }}>‹</button>
+        <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)}
+          style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
+            borderRadius: 8, padding: "6px 12px", fontSize: 16, fontWeight: 700, cursor: "pointer",
+            fontFamily: "'DM Mono', monospace" }}>
+          {availableYears.map(y => <option key={y} value={y}>{y}年</option>)}
+        </select>
+        <button onClick={() => {
+          const idx = availableYears.indexOf(selectedYear);
+          if (idx > 0) setSelectedYear(availableYears[idx - 1]);
+        }} style={{ ...navBtn, ...T.navBtn, opacity: availableYears.indexOf(selectedYear) > 0 ? 1 : 0.3 }}>›</button>
+      </div>
+
+      {/* 選択年の損益曲線 */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 6 }}>累計損益（全期間）</div>
+        <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 6 }}>{selectedYear}年 損益曲線</div>
         <ResponsiveContainer width="100%" height={180}>
           <AreaChart data={curveData}>
             <defs>
@@ -1980,7 +2006,7 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
             <XAxis dataKey="ts" type="number" scale="time"
               domain={[domainMin, domainMax]}
               ticks={tickTs} tickFormatter={v => tickMap[v] || ""}
-              tick={{ fill: T.chartTick, fontSize: 12 }} height={28}/>
+              tick={{ fill: T.chartTick, fontSize: 11 }} height={28}/>
             <YAxis tickFormatter={v => (v/1000).toFixed(0)+"K"} tick={{ fill: T.chartTick, fontSize: 12 }} width={44}/>
             <Tooltip content={({ active, payload }) => {
               if (!active || !payload?.length) return null;
@@ -2004,7 +2030,10 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
             textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
         ))}
         {yearlyData.map(y => [
-          <div key={y.year+"y"} style={{ padding:"8px 6px", fontSize:14, color:T.text, borderBottom:`1px solid ${T.border}` }}>{y.year}</div>,
+          <div key={y.year+"y"} onClick={() => setSelectedYear(y.year)} style={{
+            padding:"8px 6px", fontSize:14, color: y.year === selectedYear ? T.positive : T.text,
+            fontWeight: y.year === selectedYear ? 700 : 400,
+            borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>{y.year}</div>,
           <div key={y.year+"p"} style={{ padding:"8px 6px", fontSize:14, fontWeight:700, textAlign:"right", color:pnlColor(y.pnl,T), borderBottom:`1px solid ${T.border}` }}>{fmt(y.pnl)}</div>,
           <div key={y.year+"pp"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:pnlColor(y.pips,T), borderBottom:`1px solid ${T.border}` }}>{(y.pips>=0?"+":"") + y.pips.toFixed(1)}</div>,
           <div key={y.year+"c"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.textSub, borderBottom:`1px solid ${T.border}` }}>{y.count}</div>,
@@ -2066,6 +2095,20 @@ function ExportPanel({ trades, T }) {
   );
 }
 
+
+
+// ── Lazy Tab ──────────────────────────────────────────────────────────────
+// タブが初めてアクティブになるまでレンダリングしない
+function LazyTab({ active, children }) {
+  const mounted = useRef(false);
+  if (active) mounted.current = true;
+  if (!mounted.current) return null;
+  return (
+    <div style={{ display: active ? "block" : "none" }}>
+      {children}
+    </div>
+  );
+}
 
 // ── Main App ───────────────────────────────────────────────────────────────
 function App({ onLogout, userEmail }) {
@@ -2525,7 +2568,7 @@ function App({ onLogout, userEmail }) {
           </Section>
         )}
 
-        {activeTab === "violations" && (
+        <LazyTab active={activeTab === "violations"}>
           <Section title="ルール違反（日単位）">
             <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 16 }}>
               {selectedMonth.replace("-", "年")}月
@@ -2535,42 +2578,42 @@ function App({ onLogout, userEmail }) {
               setActiveTab("list");
             }} />
           </Section>
-        )}
-        {activeTab === "equity" && (
+        </LazyTab>
+        <LazyTab active={activeTab === "equity"}>
           <Section title="損益曲線">
             <EquityCurve trades={trades} monthKey={selectedMonth} />
           </Section>
-        )}
-        {activeTab === "hourly" && (
+        </LazyTab>
+        <LazyTab active={activeTab === "hourly"}>
           <Section title="時間帯別分析">
             <HourlyAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
-        )}
-        {activeTab === "lot" && (
+        </LazyTab>
+        <LazyTab active={activeTab === "lot"}>
           <Section title="ロット別分析">
             <LotAnalysis trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
-        )}
-        {activeTab === "yearly" && (
+        </LazyTab>
+        <LazyTab active={activeTab === "yearly"}>
           <Section title="年次集計">
             <YearlySummary trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
-        )}
-        {activeTab === "analytics" && (
+        </LazyTab>
+        <LazyTab active={activeTab === "analytics"}>
           <Section title="分析">
             <Analytics trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
-        )}
-        {activeTab === "pair" && (
+        </LazyTab>
+        <LazyTab active={activeTab === "pair"}>
           <Section title="通貨ペア別パフォーマンス">
             <PairAnalysis trades={trades} monthKey={selectedMonth} winThreshold={winThreshold} lossThreshold={lossThreshold} />
           </Section>
-        )}
-        {activeTab === "list" && (
+        </LazyTab>
+        <LazyTab active={activeTab === "list"}>
           <Section title="トレード履歴">
             <TradeList trades={trades} monthKey={selectedMonth} listFilter={listFilter} setListFilter={setListFilter} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} />
           </Section>
-        )}
+        </LazyTab>
         {activeTab === "settings" && (
           <Section title="設定">
             <div style={{ display: "flex", flexDirection: "column", gap: 28, maxWidth: 420 }}>
