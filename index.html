@@ -1505,6 +1505,13 @@ function TabIcon({ id, active, color, size = 24 }) {
         <rect x="15" y="6" width="3" height="13" rx="1" fill={teal} opacity="0.6"/>
       </svg>
     ),
+    goal: (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
+        <circle cx="12" cy="12" r="9" stroke={stroke} strokeWidth="1.5"/>
+        <circle cx="12" cy="12" r="5" stroke={teal} strokeWidth="1.5"/>
+        <circle cx="12" cy="12" r="2" fill={pink}/>
+      </svg>
+    ),
     yearly: (
       <svg width={s} height={s} viewBox="0 0 24 24" fill="none" opacity={opacity}>
         <rect x="3" y="4" width="18" height="17" rx="3" stroke={stroke} strokeWidth="1.5"/>
@@ -1950,22 +1957,52 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
     return ticks;
   }, [selectedYear]);
 
-  // 合計行（全期間）
-  const total = useMemo(() => {
-    const allWins = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
-    const allLosses = trades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
-    const totalPnl = trades.reduce((s, t) => s + (parseFloat(t.pnl) || 0), 0);
-    const totalPips = trades.reduce((s, t) => s + (parseFloat(t.pips) || 0), 0);
-    const decided = allWins.length + allLosses.length;
+  // 月次集計（選択年）
+  const monthlyData = useMemo(() => {
+    const map = {};
+    yearTrades.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      const month = td.slice(0, 7); // YYYY-MM
+      if (!map[month]) map[month] = { month, pnl: 0, pips: 0, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0 };
+      map[month].pnl += parseFloat(t.pnl) || 0;
+      map[month].pips += parseFloat(t.pips) || 0;
+      const r = tradeResult(t, winThreshold, lossThreshold);
+      if (r === "win") { map[month].wins++; map[month].winPips += parseFloat(t.pips) || 0; }
+      else if (r === "loss") { map[month].losses++; map[month].lossPips += parseFloat(t.pips) || 0; }
+      else map[month].draws++;
+    });
+    return Array.from({length: 12}, (_, i) => {
+      const m = String(i + 1).padStart(2, "0");
+      const key = `${selectedYear}-${m}`;
+      const d = map[key] || { month: key, pnl: 0, pips: 0, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0 };
+      const decided = d.wins + d.losses;
+      const count = d.wins + d.losses + d.draws;
+      return {
+        ...d, count,
+        label: `${parseInt(m)}月`,
+        hasData: !!map[key],
+        winRate: decided ? (d.wins / decided * 100).toFixed(1) : "—",
+        avgWinPips: d.wins ? (d.winPips / d.wins).toFixed(2) : "—",
+        avgLossPips: d.losses ? (d.lossPips / d.losses).toFixed(2) : "—",
+      };
+    });
+  }, [yearTrades, selectedYear, winThreshold, lossThreshold]);
+
+  // 年合計
+  const yearTotal = useMemo(() => {
+    const wins = yearTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "win");
+    const losses = yearTrades.filter(t => tradeResult(t, winThreshold, lossThreshold) === "loss");
+    const pnl = yearTrades.reduce((s, t) => s + (parseFloat(t.pnl) || 0), 0);
+    const pips = yearTrades.reduce((s, t) => s + (parseFloat(t.pips) || 0), 0);
+    const decided = wins.length + losses.length;
     return {
-      pnl: totalPnl, pips: totalPips,
-      wins: allWins.length, losses: allLosses.length, draws: trades.length - allWins.length - allLosses.length,
-      count: trades.length,
-      winRate: decided ? (allWins.length / decided * 100).toFixed(1) : "—",
-      avgWinPips: allWins.length ? (allWins.reduce((s,t) => s+(parseFloat(t.pips)||0),0) / allWins.length).toFixed(2) : "—",
-      avgLossPips: allLosses.length ? (allLosses.reduce((s,t) => s+(parseFloat(t.pips)||0),0) / allLosses.length).toFixed(2) : "—",
+      pnl, pips, count: yearTrades.length,
+      wins: wins.length, losses: losses.length,
+      winRate: decided ? (wins.length / decided * 100).toFixed(1) : "—",
+      avgWinPips: wins.length ? (wins.reduce((s,t) => s+(parseFloat(t.pips)||0),0) / wins.length).toFixed(2) : "—",
+      avgLossPips: losses.length ? (losses.reduce((s,t) => s+(parseFloat(t.pips)||0),0) / losses.length).toFixed(2) : "—",
     };
-  }, [trades, winThreshold, lossThreshold]);
+  }, [yearTrades, winThreshold, lossThreshold]);
 
   if (!yearlyData.length) return <div style={{ color: T.textFaint, fontSize: 14 }}>データがありません</div>;
 
@@ -2026,35 +2063,375 @@ function YearlySummary({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
         </ResponsiveContainer>
       </div>
 
-      {/* Yearly table */}
+      {/* Monthly table */}
       <div style={{ overflowX: "auto" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "52px 1fr 72px 52px 60px 60px", gap: 0, minWidth: 380 }}>
-        {["年", "損益(円)", "pips", "件数", "勝均pips", "負均pips"].map((h, i) => (
+      <div style={{ display: "grid", gridTemplateColumns: "44px 1fr 72px 52px 60px 60px", gap: 0, minWidth: 360 }}>
+        {["月", "損益(円)", "pips", "件数", "勝均pips", "負均pips"].map((h, i) => (
           <div key={h} style={{ fontSize: 11, color: T.textMuted, padding: "5px 6px",
             textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
         ))}
-        {yearlyData.map(y => [
-          <div key={y.year+"y"} onClick={() => setSelectedYear(y.year)} style={{
-            padding:"8px 6px", fontSize:14, color: y.year === selectedYear ? T.positive : T.text,
-            fontWeight: y.year === selectedYear ? 700 : 400,
-            borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>{y.year}</div>,
-          <div key={y.year+"p"} style={{ padding:"8px 6px", fontSize:14, fontWeight:700, textAlign:"right", color:pnlColor(y.pnl,T), borderBottom:`1px solid ${T.border}` }}>{fmt(y.pnl)}</div>,
-          <div key={y.year+"pp"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:pnlColor(y.pips,T), borderBottom:`1px solid ${T.border}` }}>{(y.pips>=0?"+":"") + y.pips.toFixed(1)}</div>,
-          <div key={y.year+"c"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.textSub, borderBottom:`1px solid ${T.border}` }}>{y.count}</div>,
-          <div key={y.year+"w"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.positive, borderBottom:`1px solid ${T.border}` }}>{y.avgWinPips !== "—" ? "+" + y.avgWinPips : "—"}</div>,
-          <div key={y.year+"l"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.negative, borderBottom:`1px solid ${T.border}` }}>{y.avgLossPips}</div>,
+        {monthlyData.map(m => [
+          <div key={m.month+"l"} style={{ padding:"8px 6px", fontSize:13, fontWeight:700,
+            color: m.hasData ? T.text : T.textFaint, borderBottom:`1px solid ${T.border}` }}>{m.label}</div>,
+          <div key={m.month+"p"} style={{ padding:"8px 6px", fontSize:13, fontWeight:700, textAlign:"right",
+            color: m.hasData ? pnlColor(m.pnl,T) : T.textFaint, borderBottom:`1px solid ${T.border}` }}>
+            {m.hasData ? fmt(m.pnl) : "—"}</div>,
+          <div key={m.month+"pp"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right",
+            color: m.hasData ? pnlColor(m.pips,T) : T.textFaint, borderBottom:`1px solid ${T.border}` }}>
+            {m.hasData ? (m.pips>=0?"+":"") + m.pips.toFixed(1) : "—"}</div>,
+          <div key={m.month+"c"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right",
+            color: m.hasData ? T.textSub : T.textFaint, borderBottom:`1px solid ${T.border}` }}>
+            {m.hasData ? m.count : "—"}</div>,
+          <div key={m.month+"w"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right",
+            color: T.positive, borderBottom:`1px solid ${T.border}` }}>
+            {m.avgWinPips !== "—" ? "+" + m.avgWinPips : "—"}</div>,
+          <div key={m.month+"lo"} style={{ padding:"8px 6px", fontSize:13, textAlign:"right",
+            color: T.negative, borderBottom:`1px solid ${T.border}` }}>
+            {m.avgLossPips}</div>,
         ])}
-        {/* 合計行 */}
+        {/* 年合計行 */}
         {[
-          <div key="total-y" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, color:T.text, borderTop:`2px solid ${T.borderStrong}` }}>合計</div>,
-          <div key="total-p" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, textAlign:"right", color:pnlColor(total.pnl,T), borderTop:`2px solid ${T.borderStrong}` }}>{fmt(total.pnl)}</div>,
-          <div key="total-pp" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, textAlign:"right", color:pnlColor(total.pips,T), borderTop:`2px solid ${T.borderStrong}` }}>{(total.pips>=0?"+":"") + total.pips.toFixed(1)}</div>,
-          <div key="total-c" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.textSub, borderTop:`2px solid ${T.borderStrong}` }}>{total.count}</div>,
-          <div key="total-w" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.positive, borderTop:`2px solid ${T.borderStrong}` }}>{total.avgWinPips !== "—" ? "+" + total.avgWinPips : "—"}</div>,
-          <div key="total-l" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.negative, borderTop:`2px solid ${T.borderStrong}` }}>{total.avgLossPips}</div>,
+          <div key="yt-l" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, color:T.text, borderTop:`2px solid ${T.borderStrong}` }}>合計</div>,
+          <div key="yt-p" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, textAlign:"right", color:pnlColor(yearTotal.pnl,T), borderTop:`2px solid ${T.borderStrong}` }}>{fmt(yearTotal.pnl)}</div>,
+          <div key="yt-pp" style={{ padding:"8px 6px", fontSize:13, fontWeight:700, textAlign:"right", color:pnlColor(yearTotal.pips,T), borderTop:`2px solid ${T.borderStrong}` }}>{(yearTotal.pips>=0?"+":"") + yearTotal.pips.toFixed(1)}</div>,
+          <div key="yt-c" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.textSub, borderTop:`2px solid ${T.borderStrong}` }}>{yearTotal.count}</div>,
+          <div key="yt-w" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.positive, borderTop:`2px solid ${T.borderStrong}` }}>{yearTotal.avgWinPips !== "—" ? "+" + yearTotal.avgWinPips : "—"}</div>,
+          <div key="yt-lo" style={{ padding:"8px 6px", fontSize:13, textAlign:"right", color:T.negative, borderTop:`2px solid ${T.borderStrong}` }}>{yearTotal.avgLossPips}</div>,
         ]}
       </div>
       </div>
+    </div>
+  );
+}
+
+
+// ── Goal Panel ────────────────────────────────────────────────────────────
+function GoalPanel({ trades, settings, saveSettings }) {
+  const T = useTheme();
+
+  const baseAsset   = parseFloat(settings.baseAsset)   || 0;
+  const baseDate    = settings.baseDate    || "";
+  const goals       = settings.goals       || [];
+
+  // 基準日以降の累計損益
+  const gainSinceBase = useMemo(() => {
+    if (!baseDate) return 0;
+    return trades
+      .filter(t => getTradingDate(t.date, t.time) > baseDate)
+      .reduce((s, t) => s + (parseFloat(t.pnl) || 0), 0);
+  }, [trades, baseDate]);
+
+  const currentAsset = baseAsset + gainSinceBase;
+
+  // 資産推移チャートデータ（基準日〜今日）
+  const assetCurveData = useMemo(() => {
+    if (!baseDate || !baseAsset) return [];
+    const sorted = [...trades]
+      .filter(t => getTradingDate(t.date, t.time) > baseDate)
+      .sort((a, b) => new Date(a.date + "T" + a.time) - new Date(b.date + "T" + b.time));
+    // タイムゾーン対策: YYYY-MM-DD → 正午として扱う
+    const toTs = (dateStr) => new Date(dateStr + "T12:00:00").getTime();
+    const points = [{ ts: toTs(baseDate), asset: baseAsset, label: baseDate }];
+    let cum = baseAsset;
+    // 日次でまとめる
+    const dayMap = {};
+    sorted.forEach(t => {
+      const td = getTradingDate(t.date, t.time);
+      dayMap[td] = (dayMap[td] || 0) + (parseFloat(t.pnl) || 0);
+    });
+    Object.keys(dayMap).sort().forEach(td => {
+      cum += dayMap[td];
+      points.push({ ts: toTs(td), asset: cum, label: td });
+    });
+    return points;
+  }, [trades, baseDate, baseAsset]);
+
+  // 営業日カウント（土日を除く）
+  const countBizDays = (from, to) => {
+    let count = 0;
+    const d = new Date(from);
+    d.setDate(d.getDate() + 1);
+    const end = new Date(to);
+    while (d <= end) {
+      const dow = d.getDay();
+      if (dow !== 0 && dow !== 6) count++;
+      d.setDate(d.getDate() + 1);
+    }
+    return count;
+  };
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const [editGoal, setEditGoal] = useState(null); // {idx, amount, deadline} or {idx:-1,...} for new
+  const [showGoalForm, setShowGoalForm] = useState(false);
+
+  const saveGoal = () => {
+    if (!editGoal) return;
+    const newGoals = [...goals];
+    const g = { amount: parseFloat(editGoal.amount) || 0, deadline: editGoal.deadline };
+    if (editGoal.idx === -1) newGoals.push(g);
+    else newGoals[editGoal.idx] = g;
+    saveSettings({ ...settings, goals: newGoals });
+    setShowGoalForm(false);
+    setEditGoal(null);
+  };
+
+  const deleteGoal = (idx) => {
+    const newGoals = goals.filter((_, i) => i !== idx);
+    saveSettings({ ...settings, goals: newGoals });
+  };
+
+  return (
+    <div>
+      {/* 資産推移チャート */}
+      {assetCurveData.length >= 1 && goals.length > 0 && (() => {
+        const sortedGoals = [...goals].sort((a,b) => (a.deadline||'9999') < (b.deadline||'9999') ? -1 : 1);
+        const maxDeadline = sortedGoals[sortedGoals.length-1]?.deadline;
+        const maxAsset = Math.max(
+          ...assetCurveData.map(d => d.asset),
+          ...goals.map(g => g.amount)
+        ) * 1.08;
+        const minAsset = Math.min(...assetCurveData.map(d => d.asset), baseAsset) * 0.97;
+        const domainMax = maxDeadline
+          ? new Date(maxDeadline + "T12:00:00").getTime() + 45 * 86400000
+          : assetCurveData[assetCurveData.length-1].ts + 45 * 86400000;
+        const domainMin = assetCurveData[0].ts;
+
+        // 月境界tick
+        const ticks = [];
+        const startM = new Date(domainMin);
+        startM.setDate(1);
+        startM.setMonth(startM.getMonth() + 1);
+        while (startM.getTime() <= domainMax) {
+          ticks.push(startM.getTime());
+          startM.setMonth(startM.getMonth() + 1);
+        }
+
+        const COLORS = ["#f5c842","#00d4c8","#ff4d7a","#a78bfa","#fb923c"];
+
+        return (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 8 }}>資産推移 vs 目標</div>
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={T.chartGrid}/>
+                <XAxis dataKey="ts" type="number" scale="time"
+                  domain={[domainMin, domainMax]}
+                  ticks={ticks}
+                  tickFormatter={v => { const d = new Date(v); return `${d.getMonth()+1}月`; }}
+                  tick={{ fill: T.chartTick, fontSize: 11 }} height={24}/>
+                <YAxis
+                  domain={[minAsset, maxAsset * 1.02]}
+                  tickFormatter={v => Math.round(v/10000) + "万"}
+                  tick={{ fill: T.chartTick, fontSize: 11 }} width={46}/>
+                <Tooltip content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const p = payload[0];
+                  return (
+                    <div style={{ background: T.tooltipBg, border: `1px solid ${T.tooltipBorder}`,
+                      borderRadius: 8, padding: "8px 12px", fontSize: 12 }}>
+                      <div style={{ color: T.textSub, marginBottom: 4 }}>{p.payload.label || new Date(p.payload.ts).toLocaleDateString("ja-JP")}</div>
+                      {payload.map((pp, i) => (
+                        <div key={i} style={{ color: pp.color, fontWeight: 700 }}>
+                          {pp.name}: {Math.round(pp.value/10000)}万円
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }}/>
+                {/* 実績ライン */}
+                <Line data={assetCurveData} dataKey="asset" type="monotone"
+                  name="実績" stroke={T.positive} strokeWidth={2} dot={false} connectNulls/>
+                {/* マイルストーン結合ライン（基準点→全目標点を期限順に結ぶ） */}
+                {(() => {
+                  const milestoneData = [
+                    { ts: domainMin, asset: baseAsset, label: baseDate },
+                    ...sortedGoals.map(g => ({
+                      ts: new Date(g.deadline + "T12:00:00").getTime(),
+                      asset: g.amount,
+                      label: g.deadline,
+                    })),
+                  ];
+                  return (
+                    <Line data={milestoneData} dataKey="asset" type="linear"
+                      name="目標ライン"
+                      stroke="#888" strokeWidth={1} strokeDasharray="4 3"
+                      dot={(props) => {
+                        const { cx, cy, index } = props;
+                        if (index === 0) return null; // 基準点は非表示
+                        const g = sortedGoals[index - 1];
+                        const color = COLORS[(index-1) % COLORS.length];
+                        return (
+                          <g key={index}>
+                            <circle cx={cx} cy={cy} r={6} fill={color} stroke="#0d0d1a" strokeWidth={2}/>
+                            <text x={cx + 8} y={cy - 8} textAnchor="start"
+                              fill={color} fontSize={10} fontFamily="DM Mono, monospace">
+                              {Math.round(g.amount/10000)}万
+                            </text>
+                          </g>
+                        );
+                      }}
+                    />
+                  );
+                })()}
+              </LineChart>
+            </ResponsiveContainer>
+            {/* 凡例 */}
+            <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.textSub }}>
+                <div style={{ width: 20, height: 2, background: T.positive, borderRadius: 1 }}/>
+                <span>実績</span>
+              </div>
+              {sortedGoals.map((g, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.textSub }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%",
+                    background: COLORS[i % COLORS.length], flexShrink: 0 }}/>
+                  <span>{Math.round(g.amount/10000)}万円 ({g.deadline})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 基準資産 */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>基準資産</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="number" value={baseAsset ? Math.round(baseAsset / 10000) : ""} placeholder="320"
+              onChange={e => saveSettings({ ...settings, baseAsset: (parseFloat(e.target.value) || 0) * 10000 })}
+              style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
+            <span style={{ color: T.textFaint, fontSize: 14 }}>万円</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 13, color: T.textMuted }}>基準日</span>
+            <input type="date" value={baseDate}
+              onChange={e => saveSettings({ ...settings, baseDate: e.target.value })}
+              style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                color: T.text, borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+          </div>
+        </div>
+        {baseDate && baseAsset > 0 && (
+          <div style={{ marginTop: 10, display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px" }}>
+              <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 3 }}>基準日以降の損益</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: pnlColor(gainSinceBase, T) }}>
+                {gainSinceBase >= 0 ? "+" : ""}{fmt(gainSinceBase)}円
+              </div>
+            </div>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px" }}>
+              <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 3 }}>推計現在資産</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{fmt(Math.round(currentAsset))}円</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 目標リスト */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 14, color: T.textSub, marginBottom: 12 }}>目標</div>
+        {goals.length === 0 && (
+          <div style={{ fontSize: 13, color: T.textFaint, marginBottom: 12 }}>目標がまだありません</div>
+        )}
+        {[...goals].map((g, i) => ({ ...g, _idx: i })).sort((a, b) => (a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1).map((g) => { const idx = g._idx;
+          const remaining = g.amount - currentAsset;
+          const progress = currentAsset / g.amount;
+          const pct = Math.min(Math.max(progress * 100, 0), 100);
+          const achieved = currentAsset >= g.amount;
+          const bizDaysLeft = g.deadline ? countBizDays(today, g.deadline) : 0;
+          const daysLeft = g.deadline ? Math.max(0, Math.ceil((new Date(g.deadline) - new Date(today)) / 86400000)) : 0;
+          const dailyNeeded = bizDaysLeft > 0 && remaining > 0 ? Math.ceil(remaining / bizDaysLeft) : 0;
+          const barColor = achieved ? T.positive : pct > 60 ? T.positive : pct > 30 ? "#f5c842" : T.negative;
+
+          return (
+            <div key={idx} style={{ background: T.surface, border: `1px solid ${T.border}`,
+              borderRadius: 10, padding: "14px 16px", marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{fmt(g.amount)}円</div>
+                  <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>
+                    期日: {g.deadline} {daysLeft > 0 ? `（残り${daysLeft}日）` : achieved ? "" : "（期限超過）"}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: achieved ? T.positive : T.text }}>{pct.toFixed(1)}%</div>
+                  {achieved && <div style={{ fontSize: 11, color: T.positive }}>✓ 達成</div>}
+                </div>
+              </div>
+              {/* Progress bar */}
+              <div style={{ height: 8, background: `${T.border}`, borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 4, transition: "width 0.3s" }}/>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textMuted, marginBottom: 6 }}>
+                <span>現在 {fmt(Math.round(currentAsset))}円</span>
+                <span>{achieved ? "達成済み" : `あと ${fmt(Math.round(remaining))}円`}</span>
+              </div>
+              {/* 1日あたり参考値 */}
+              {!achieved && dailyNeeded > 0 && (
+                <div style={{ fontSize: 11, color: T.textFaint, borderTop: `1px solid ${T.border}`, paddingTop: 6, marginTop: 4 }}>
+                  参考: 営業日{bizDaysLeft}日 / 1日あたり約 {fmt(dailyNeeded)}円 必要
+                </div>
+              )}
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button onClick={() => { setEditGoal({ idx, amount: g.amount, deadline: g.deadline }); setShowGoalForm(true); }}
+                  style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.textMuted,
+                    borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}>編集</button>
+                <button onClick={() => deleteGoal(idx)}
+                  style={{ background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
+                    color: T.negative, borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}>削除</button>
+              </div>
+            </div>
+          );
+        })}
+        <button onClick={() => { setEditGoal({ idx: -1, amount: "", deadline: "" }); setShowGoalForm(true); }}
+          style={{ background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.2)",
+            color: T.positive, borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 13, fontWeight: 600, width: "100%" }}>
+          + 目標を追加
+        </button>
+      </div>
+
+      {/* Goal Form Modal */}
+      {showGoalForm && editGoal && (
+        <div onClick={() => setShowGoalForm(false)} style={{
+          position: "fixed", inset: 0, zIndex: 500,
+          background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.sectionBg || "#13131f", border: `1px solid ${T.border}`,
+            borderRadius: 14, padding: 24, width: "100%", maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 20 }}>
+              {editGoal.idx === -1 ? "目標を追加" : "目標を編集"}
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 6 }}>目標額（円）</div>
+              <input type="number" value={editGoal.amount ? Math.round(editGoal.amount / 10000) : ""} placeholder="500"
+                onChange={e => setEditGoal({ ...editGoal, amount: (parseFloat(e.target.value) || 0) * 10000 })}
+                style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                  color: T.text, borderRadius: 8, padding: "10px 12px", fontSize: 15, width: "100%", textAlign: "right" }} />
+              <div style={{ fontSize: 12, color: T.textFaint, marginTop: 4, textAlign: "right" }}>万円単位で入力</div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 6 }}>期日</div>
+              <input type="date" value={editGoal.deadline}
+                onChange={e => setEditGoal({ ...editGoal, deadline: e.target.value })}
+                style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                  color: T.text, borderRadius: 8, padding: "10px 12px", fontSize: 15, width: "100%" }} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { setShowGoalForm(false); setEditGoal(null); }}
+                style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`,
+                  color: T.textMuted, borderRadius: 8, padding: "10px", cursor: "pointer", fontSize: 14 }}>キャンセル</button>
+              <button onClick={saveGoal}
+                style={{ flex: 1, background: "rgba(0,229,160,0.15)", border: "1px solid rgba(0,229,160,0.4)",
+                  color: T.positive, borderRadius: 8, padding: "10px", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2128,7 +2505,19 @@ function App({ onLogout, userEmail }) {
 
   const saveSettings = async (newSettings) => {
     setSettings(newSettings);
-    try { await window.storage.set("fxjournal_settings_v1", JSON.stringify(newSettings)); } catch {}
+    if (!window.storage) return;
+    try {
+      await window.storage.set("fxjournal_settings_v1", JSON.stringify(newSettings));
+    } catch(e) {
+      console.error("設定保存失敗:", e);
+      // settingsテーブルのPKエラー対策: DELETE→INSERT
+      try {
+        await window.storage.delete("fxjournal_settings_v1");
+        await window.storage.set("fxjournal_settings_v1", JSON.stringify(newSettings));
+      } catch(e2) {
+        console.error("設定保存リトライ失敗:", e2);
+      }
+    }
   };
   const [listFilter, setListFilter] = useState({ date: null, violationOnly: false });
   const [dragging, setDragging] = useState(false);
@@ -2180,15 +2569,8 @@ function App({ onLogout, userEmail }) {
         alert("CSVの解析に失敗しました。\n対応: 証券会社の取引履歴CSV（Shift-JIS/UTF-8）");
         return;
       }
-      // Load current saved trades (not sample data)
-      let existing = [];
-      try {
-        const result = await window.storage.get(STORAGE_KEY);
-        if (result && result.value) {
-          const saved = JSON.parse(result.value);
-          if (Array.isArray(saved)) existing = saved;
-        }
-      } catch {}
+      // メモリ上の現在のtradesを使う（Supabaseから再取得より確実）
+      const existing = trades;
 
       const { merged, added, updated, total } = mergeAndDedupe(existing, parsed);
       setTrades(merged);
@@ -2199,7 +2581,7 @@ function App({ onLogout, userEmail }) {
     const reader = new FileReader();
     reader.onload = (e) => tryParse(e.target.result);
     reader.readAsText(file, "Shift-JIS");
-  }, [saveTrades]);
+  }, [saveTrades, trades]);
 
   const handleExport = useCallback(() => {
     if (!trades.length) return;
@@ -2257,6 +2639,7 @@ function App({ onLogout, userEmail }) {
     { id: "analytics",  icon: "🔬", label: "分析" },
     { id: "lot",        icon: "📊", label: "ロット" },
     { id: "yearly",     icon: "📆", label: "年次" },
+    { id: "goal",       icon: "🎯", label: "目標" },
     { id: "settings",   icon: "⚙️", label: "設定" },
   ];
 
@@ -2596,6 +2979,11 @@ function App({ onLogout, userEmail }) {
         <LazyTab active={activeTab === "lot"}>
           <Section title="ロット別分析">
             <LotAnalysis trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+          </Section>
+        </LazyTab>
+        <LazyTab active={activeTab === "goal"}>
+          <Section title="目標管理">
+            <GoalPanel trades={trades} settings={settings} saveSettings={saveSettings} />
           </Section>
         </LazyTab>
         <LazyTab active={activeTab === "yearly"}>
