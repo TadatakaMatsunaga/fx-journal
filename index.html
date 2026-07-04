@@ -2778,7 +2778,7 @@ async function saveDiary(diary) {
 function DiaryList({ diary, onEdit, trades = [], winThreshold = 0.0, lossThreshold = 0.0 }) {
   const T = useTheme();
   const entries = Object.entries(diary)
-    .filter(([, v]) => v && v.trim())
+    .filter(([, v]) => v && typeof v === 'string' && v.trim())
     .sort(([a], [b]) => b.localeCompare(a));
 
   if (entries.length === 0) return (
