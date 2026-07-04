@@ -99,7 +99,7 @@
     function makeStorage(userId, accessToken) {
       return {
         async get(key) {
-          const table = key.includes("settings") ? "settings" : "trades";
+          const table = (key.includes("settings") || key.includes("diary")) ? "settings" : "trades";
           const data = await supabaseRequest("GET",
             `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}&select=data&order=updated_at.desc&limit=1`,
             undefined, accessToken);
@@ -108,7 +108,7 @@
           return { key, value };
         },
         async set(key, value) {
-          const table = key.includes("settings") ? "settings" : "trades";
+          const table = (key.includes("settings") || key.includes("diary")) ? "settings" : "trades";
           const parsed = (() => { try { return JSON.parse(value); } catch { return value; } })();
           const authHeaders = {
             "Content-Type": "application/json",
@@ -128,7 +128,7 @@
           return { key, value };
         },
         async delete(key) {
-          const table = key.includes("settings") ? "settings" : "trades";
+          const table = (key.includes("settings") || key.includes("diary")) ? "settings" : "trades";
           await supabaseRequest("DELETE",
             `/rest/v1/${table}?user_id=eq.${encodeURIComponent(userId)}`,
             undefined, accessToken);
@@ -2927,6 +2927,7 @@ function App({ onLogout, userEmail }) {
 
   // Load from persistent storage on mount
   const loadTrades = useCallback(async () => {
+    if (!window.storage) { setIsLoading(false); return; }
     setIsLoading(true);
     try {
       // Load settings
@@ -2942,21 +2943,28 @@ function App({ onLogout, userEmail }) {
         const saved = JSON.parse(result.value);
         if (Array.isArray(saved) && saved.length > 0 && saved[0].date) {
           setTrades(saved);
-          setIsLoading(false);
-          return;
         }
       }
-    } catch (e) { /* no saved data */ }
+    } catch (e) { console.error("トレード読み込み失敗:", e); }
     // Load diary
     try {
       const d = await loadDiary();
       setDiary(d);
     } catch {}
-    setTrades([]);
     setIsLoading(false);
   }, []);
 
-  useEffect(() => { loadTrades(); }, []);
+  useEffect(() => {
+    // window.storageが準備できてからロード
+    const tryLoad = async () => {
+      if (window.storage) {
+        loadTrades();
+      } else {
+        setTimeout(tryLoad, 200);
+      }
+    };
+    tryLoad();
+  }, []);
 
   // Save to storage
   const saveTrades = useCallback(async (data) => {
@@ -3375,24 +3383,42 @@ function App({ onLogout, userEmail }) {
 
         {trades.length > 0 && <>
         {/* Tab Nav */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 20, overflowX: "auto", paddingBottom: 4 }}>
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-              background: activeTab === t.id ? T.tabActive : T.tabInactive,
-              border: activeTab === t.id ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.tabInactiveBorder}`,
-              color: activeTab === t.id ? T.tabActiveText : T.tabInactiveText,
-              boxShadow: activeTab === t.id && theme === "cyber" ? `0 0 12px ${T.tabActiveText}44` : "none",
-              borderRadius: 10, padding: "8px 10px", cursor: "pointer",
-              whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace",
-              fontWeight: activeTab === t.id ? 700 : 400,
-              transition: "all 0.15s",
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-              minWidth: 52,
-            }}>
-              <TabIcon id={t.id} active={activeTab === t.id} color={T.tabActiveText} size={22} />
-              <span style={{ fontSize: 10 }}>{t.label}</span>
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 4, marginBottom: 20, alignItems: "center" }}>
+          <div style={{ flex: 1, display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+            {tabs.filter(t => t.id !== "settings").map(t => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+                background: activeTab === t.id ? T.tabActive : T.tabInactive,
+                border: activeTab === t.id ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.tabInactiveBorder}`,
+                color: activeTab === t.id ? T.tabActiveText : T.tabInactiveText,
+                boxShadow: activeTab === t.id && theme === "cyber" ? `0 0 12px ${T.tabActiveText}44` : "none",
+                borderRadius: 10, padding: "8px 10px", cursor: "pointer",
+                whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace",
+                fontWeight: activeTab === t.id ? 700 : 400,
+                transition: "all 0.15s",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                minWidth: 52, flexShrink: 0,
+              }}>
+                <TabIcon id={t.id} active={activeTab === t.id} color={T.tabActiveText} size={22} />
+                <span style={{ fontSize: 10 }}>{t.label}</span>
+              </button>
+            ))}
+          </div>
+          {/* 設定タブは常に右端に固定 */}
+          <button onClick={() => setActiveTab("settings")} style={{
+            background: activeTab === "settings" ? T.tabActive : T.tabInactive,
+            border: activeTab === "settings" ? `1px solid ${T.tabActiveBorder}` : `1px solid ${T.tabInactiveBorder}`,
+            color: activeTab === "settings" ? T.tabActiveText : T.tabInactiveText,
+            boxShadow: activeTab === "settings" && theme === "cyber" ? `0 0 12px ${T.tabActiveText}44` : "none",
+            borderRadius: 10, padding: "8px 10px", cursor: "pointer",
+            fontFamily: "'DM Mono', monospace",
+            fontWeight: activeTab === "settings" ? 700 : 400,
+            transition: "all 0.15s",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+            minWidth: 52, flexShrink: 0,
+          }}>
+            <TabIcon id="settings" active={activeTab === "settings"} color={T.tabActiveText} size={22} />
+            <span style={{ fontSize: 10 }}>設定</span>
+          </button>
         </div>
 
         {/* Tab Content */}
