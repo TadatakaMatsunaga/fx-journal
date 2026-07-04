@@ -450,10 +450,7 @@ function DayModal({ date: initialDate, trades, onClose, winThreshold = 0.0, loss
     setDiaryEditing(false);
   }, [date]);
 
-  // diaryが外から更新されたら反映
-  useEffect(() => {
-    if (!diaryEditing) setDiaryText(diary[date] || "");
-  }, [diary, date]);
+
 
   const tradingDates = useMemo(() => {
     const days = new Set(trades.map(t => getTradingDate(t.date, t.time)));
