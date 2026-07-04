@@ -3566,6 +3566,28 @@ function App({ onLogout, userEmail }) {
                 </div>
               </div>
 
+              {/* アカウント */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>アカウント</div>
+                {userEmail && (
+                  <div style={{ fontSize: 13, color: T.textFaint, marginBottom: 10 }}>{userEmail}</div>
+                )}
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => loadTrades()} style={{
+                    background: T.surface, border: `1px solid ${T.border}`,
+                    color: T.textSub, borderRadius: 8, padding: "8px 16px",
+                    cursor: "pointer", fontSize: 13,
+                  }}>🔄 データ再読み込み</button>
+                  {onLogout && (
+                    <button onClick={onLogout} style={{
+                      background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.2)",
+                      color: T.negative, borderRadius: 8, padding: "8px 16px",
+                      cursor: "pointer", fontSize: 13,
+                    }}>ログアウト</button>
+                  )}
+                </div>
+              </div>
+
               {/* データ初期化 */}
               <div>
                 <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>データ管理</div>
