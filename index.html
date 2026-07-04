@@ -2755,22 +2755,21 @@ function RulesTab({ settings, saveSettings }) {
 
 
 // ── Diary helpers ─────────────────────────────────────────────────────────
-const DIARY_KEY = "fxmate_diary_v1";
-
 async function loadDiary() {
   try {
-    const result = await window.storage.get(DIARY_KEY);
+    const result = await window.storage.get("fxjournal_settings_v1");
     if (result && result.value) {
       const data = JSON.parse(result.value);
-      if (typeof data === "object" && !Array.isArray(data)) return data;
+      if (data && typeof data === "object" && data.diary) return data.diary;
     }
   } catch {}
   return {};
 }
 
-async function saveDiary(diary) {
+async function saveDiary(diary, currentSettings) {
   try {
-    await window.storage.set(DIARY_KEY, JSON.stringify(diary));
+    const newSettings = { ...(currentSettings || {}), diary };
+    await window.storage.set("fxjournal_settings_v1", JSON.stringify(newSettings));
   } catch(e) { console.error("日誌保存失敗:", e); }
 }
 
@@ -3299,7 +3298,7 @@ function App({ onLogout, userEmail }) {
           onSave={async (text) => {
             const newDiary = { ...diary, [diaryEditDate]: text };
             setDiary(newDiary);
-            await saveDiary(newDiary);
+            await saveDiary(newDiary, settings);
             const ret = diaryReturnDate;
             setDiaryEditDate(null);
             setDiaryReturnDate(null);
@@ -3427,7 +3426,7 @@ function App({ onLogout, userEmail }) {
             <CalendarView trades={trades} onMonthChange={setSelectedMonth} calendarUnit={calendarUnit} winThreshold={winThreshold} lossThreshold={lossThreshold} violThreshold={violThreshold} selectedMonth={selectedMonth} diary={diary} onDiaryEdit={async (date, text) => {
                 const newDiary = { ...diary, [date]: text };
                 setDiary(newDiary);
-                await saveDiary(newDiary);
+                await saveDiary(newDiary, settings);
               }} />
           </Section>
         )}
