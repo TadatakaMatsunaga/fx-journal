@@ -1760,7 +1760,7 @@ function Analytics({ trades, monthKey, winThreshold = 0.0, lossThreshold = 0.0 }
 
 
 // ── Lot Analysis ──────────────────────────────────────────────────────────
-function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
+function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0, stopThreshold = 5.0 }) {
   const T = useTheme();
 
   // 期間フィルター
@@ -1852,8 +1852,8 @@ function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
         <div style={{ color: T.textFaint, fontSize: 14 }}>データがありません</div>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "52px 1fr 60px 60px 60px 80px", gap: 0, minWidth: 380 }}>
-            {["ロット", "取引数", "勝率", "勝均pips", "負均pips", "収益(円)"].map((h, i) => (
+          <div style={{ display: "grid", gridTemplateColumns: "52px 1fr 60px 60px 60px 52px 80px", gap: 0, minWidth: 420 }}>
+            {["ロット", "取引数", "勝率", "勝均pips", "負均pips", "SL回数", "収益(円)"].map((h, i) => (
               <div key={h} style={{ fontSize: 11, color: T.textMuted, padding: "5px 6px",
                 textAlign: i <= 1 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</div>
             ))}
@@ -1874,6 +1874,7 @@ function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0 }) {
                 <div key={d.lot+"wr"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", color: wr === null ? T.textFaint : wr >= 50 ? T.positive : T.negative, fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>{d.winRate !== "—" ? d.winRate + "%" : "—"}</div>,
                 <div key={d.lot+"wp"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", color: T.positive, borderBottom: `1px solid ${T.border}` }}>{d.avgWinPips !== "—" ? "+" + d.avgWinPips : "—"}</div>,
                 <div key={d.lot+"lp"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", color: T.negative, borderBottom: `1px solid ${T.border}` }}>{d.avgLossPips}</div>,
+                <div key={d.lot+"sl"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", color: d.stops > 0 ? T.negative : T.textFaint, fontWeight: d.stops > 0 ? 700 : 400, borderBottom: `1px solid ${T.border}` }}>{d.stops > 0 ? d.stops : "—"}</div>,
                 <div key={d.lot+"pnl"} style={{ padding: "7px 6px", fontSize: 13, textAlign: "right", fontWeight: 700, color: pnlColor(d.totalPnl, T), borderBottom: `1px solid ${T.border}` }}>{fmt(d.totalPnl)}</div>,
               ];
             })}
@@ -2490,6 +2491,7 @@ function App({ onLogout, userEmail }) {
   const violThreshold  = isNaN(settings.violThreshold)  ? -6.0 : (settings.violThreshold  ?? -6.0);
   const winThreshold   = isNaN(settings.winThreshold)   ? 0.0  : (settings.winThreshold   ?? 0.0);
   const lossThreshold  = isNaN(settings.lossThreshold)  ? 0.0  : (settings.lossThreshold  ?? 0.0);
+  const stopThreshold  = isNaN(settings.stopThreshold)  ? 5.0  : (settings.stopThreshold  ?? 5.0);
   const calendarUnit   = settings.calendarUnit  ?? "pnl"; // "pnl" or "pips"
 
   const saveSettings = async (newSettings) => {
@@ -2967,7 +2969,7 @@ function App({ onLogout, userEmail }) {
         </LazyTab>
         <LazyTab active={activeTab === "lot"}>
           <Section title="ロット別分析">
-            <LotAnalysis trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} />
+            <LotAnalysis trades={trades} winThreshold={winThreshold} lossThreshold={lossThreshold} stopThreshold={stopThreshold} />
           </Section>
         </LazyTab>
         <LazyTab active={activeTab === "goal"}>
@@ -3010,6 +3012,22 @@ function App({ onLogout, userEmail }) {
                       color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
                   <span style={{ color: T.textFaint, fontSize: 14 }}>pips</span>
                   <button onClick={() => saveSettings({ ...settings, violThreshold: -6.0 })}
+                    style={{ background: T.surface, border: `1px solid ${T.border}`,
+                      color: T.textMuted, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>リセット</button>
+                </div>
+              </div>
+
+              {/* ストップ損切り閾値 */}
+              <div>
+                <div style={{ fontSize: 14, color: T.textSub, marginBottom: 8 }}>ストップ損切りの閾値（pips）</div>
+                <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 10 }}>この値以上の損切りをSLとしてカウントします</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <input type="number" step="0.5" min="0" value={stopThreshold}
+                    onChange={e => saveSettings({ ...settings, stopThreshold: parseFloat(e.target.value) })}
+                    style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                      color: T.text, borderRadius: 8, padding: "8px 12px", fontSize: 15, width: 100, textAlign: "right" }} />
+                  <span style={{ color: T.textFaint, fontSize: 14 }}>pips以上</span>
+                  <button onClick={() => saveSettings({ ...settings, stopThreshold: 5.0 })}
                     style={{ background: T.surface, border: `1px solid ${T.border}`,
                       color: T.textMuted, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>リセット</button>
                 </div>
