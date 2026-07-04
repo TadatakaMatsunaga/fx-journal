@@ -1791,13 +1791,14 @@ function LotAnalysis({ trades, winThreshold = 0.0, lossThreshold = 0.0, stopThre
       const lot = Math.round(parseFloat(t.lots) || 0);
       const pips = parseFloat(t.pips) || 0;
       const pnl = parseFloat(t.pnl) || 0;
-      if (!map[lot]) map[lot] = { lot, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0, totalPips: 0, totalPnl: 0 };
+      if (!map[lot]) map[lot] = { lot, wins: 0, losses: 0, draws: 0, winPips: 0, lossPips: 0, totalPips: 0, totalPnl: 0, stops: 0 };
       const r = tradeResult(t, winThreshold, lossThreshold);
       map[lot].totalPips += pips;
       map[lot].totalPnl += pnl;
       if (r === "win") { map[lot].wins++; map[lot].winPips += pips; }
       else if (r === "loss") { map[lot].losses++; map[lot].lossPips += pips; }
       else map[lot].draws++;
+      if (pips <= -stopThreshold) map[lot].stops++;
     });
     return Object.values(map).sort((a, b) => a.lot - b.lot).map(d => {
       const decided = d.wins + d.losses;
